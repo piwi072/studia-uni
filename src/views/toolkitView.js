@@ -2,17 +2,27 @@ import { ICONS } from '../components/icons.js';
 import {
   COURSE_COLORS,
   GERMAN_GRADES,
-  addDaysToISO,
   daysBetween,
   formatShortDateDE,
+  isoDate,
 } from '../data/defaults.js';
 import { FOCUS_PRESETS, focusTimer, formatMMSS } from '../services/focusTimer.js';
+import { GEMINI_MODELS, getGeminiModel, hasGeminiKey } from '../services/geminiTutor.js';
 import {
   computeGpaStats,
   formatGradeDE,
   formatSingleGradeDE,
 } from '../state/store.js';
 import { esc } from '../utils/html.js';
+import { findHolidayForDate, nextLectureOccurrence } from '../utils/semester.js';
+import {
+  LEITNER_BOXES,
+  getBoxMeta,
+  getLeitnerStats,
+  getModuleCardQueue,
+  previewNextIntervals,
+} from '../utils/spacedRepetition.js';
+import { computeStudyAnalytics } from '../utils/studyStats.js';
 import { renderTaskRow } from './todayView.js';
 
 export function renderToolkitView(state, ui) {
@@ -59,17 +69,18 @@ export function renderToolkitView(state, ui) {
         : sub === 'tasks'
           ? renderTasksTab(state)
           : sub === 'focus'
-            ? renderFocusTab(state)
+            ? renderFocusTab(state, ui)
             : renderGradesAndCampusTab(state)
     }
   `;
 }
 
 /* ==========================================================================
-   SUB-TAB 1: MODULE (Alle 6 Fächer vereint: NotebookLM, Infos, Karteikarten,
-   fachspezifische Rechner & Formeln)
+   SUB-TAB 1: MODULE (Alle 6 Fächer vereint: NotebookLM, Infos, 5-Fächer
+   Spaced-Repetition Karteikarten, Gemini KI-Tutor, fachspezifische Rechner)
    ========================================================================== */
 function renderModulesTab(state, ui) {
+  const todayIso = isoDate();
   const modules = state.modules || [];
   const activeId = modules.some((m) => m.id === ui.selectedModuleId)
     ? ui.selectedModuleId
@@ -79,13 +90,18 @@ function renderModulesTab(state, ui) {
 
   const col = COURSE_COLORS[mod.color] || COURSE_COLORS.sage;
 
-  // Module flashcards
-  const modCards = (state.flashcards || []).filter((c) => c.course === mod.courseKey);
-  const orderedCards = [...modCards].sort((a, b) => (a.box || 1) - (b.box || 1));
+  // Spaced Repetition (5-box Leitner)
+  const leitnerStats = getLeitnerStats(state.flashcards || [], mod.courseKey, todayIso);
+  const dueOnly = ui.cardDueOnly !== false; // default true
+  const orderedCards = getModuleCardQueue(state.flashcards || [], mod.courseKey, {
+    dueOnly,
+    todayIso,
+  });
   const cIdx = orderedCards.length > 0 ? (ui.cardIndex || 0) % orderedCards.length : 0;
   const currentCard = orderedCards[cIdx] || null;
   const flipped = Boolean(ui.cardFlipped);
-  const masteredCount = modCards.filter((c) => (c.box || 1) >= 3).length;
+  const cardBoxMeta = currentCard ? getBoxMeta(currentCard.box) : null;
+  const intervals = currentCard ? previewNextIntervals(currentCard) : null;
 
   // Related tasks for this module
   const modTasks = (state.tasks || []).filter(
@@ -110,8 +126,7 @@ function renderModulesTab(state, ui) {
       ${modules
         .map((m) => {
           const mc = COURSE_COLORS[m.color] || COURSE_COLORS.sage;
-          const cnt = (state.flashcards || []).filter((f) => f.course === m.courseKey).length;
-          const noteCnt = (m.notebookNotes || []).length;
+          const mStats = getLeitnerStats(state.flashcards || [], m.courseKey, todayIso);
           const isAct = m.id === mod.id;
           return `
             <button
@@ -124,7 +139,9 @@ function renderModulesTab(state, ui) {
               <span class="module-dot" style="background:${mc.hex}"></span>
               <span class="module-pill-body">
                 <strong>${esc(m.short)}</strong>
-                <span class="text-xs text-muted">${cnt} Karten${noteCnt ? ` · ${noteCnt} Infos` : ''}</span>
+                <span class="text-xs text-muted">
+                  ${mStats.dueCount > 0 ? `<strong style="color:var(--accent-primary);">${mStats.dueCount} fällig</strong> · ` : ''}${mStats.total} Karten
+                </span>
               </span>
             </button>`;
         })
@@ -190,14 +207,16 @@ function renderModulesTab(state, ui) {
       }
     </section>
 
-    <!-- Main 2-Column Workspace: Flashcards + Notebook Infos -->
+    <!-- Main 2-Column Workspace: Spaced-Repetition Flashcards + Notebook Infos -->
     <div class="toolkit-grid">
-      <!-- Left: Module Flashcards -->
+      <!-- Left: 5-Box Leitner Flashcards -->
       <section class="card">
         <div class="section-head">
           <div>
             <h3 class="section-title">Karteikarten · ${esc(mod.short)}</h3>
-            <div class="text-xs text-muted">${masteredCount} von ${modCards.length} sicher gewusst</div>
+            <div class="text-xs text-muted">
+              5-Fächer Spaced Repetition · ${leitnerStats.dueCount} heute fällig · ${leitnerStats.masteredCount}/${leitnerStats.total} sicher
+            </div>
           </div>
           <div class="flex-row" style="gap:5px;">
             <button
@@ -220,49 +239,83 @@ function renderModulesTab(state, ui) {
           </div>
         </div>
 
+        <!-- Due vs All Filter + 5-Box Leitner Strip -->
+        <div class="flex-between" style="flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+          <div class="segmented-bar" role="tablist" aria-label="Kartenfilter">
+            <button class="segment-btn ${dueOnly ? 'active' : ''}" data-action="set-card-due-filter" data-value="due">
+              Heute fällig (${leitnerStats.dueCount})
+            </button>
+            <button class="segment-btn ${!dueOnly ? 'active' : ''}" data-action="set-card-due-filter" data-value="all">
+              Alle (${leitnerStats.total})
+            </button>
+          </div>
+          <div class="leitner-strip" title="Verteilung über die 5 Leitner-Fächer (1, 3, 7, 14, 30 Tage)">
+            ${LEITNER_BOXES.map(
+              (b, idx) => `
+              <span class="leitner-pip ${leitnerStats.boxes[idx] > 0 ? 'has-cards' : ''}" title="${b.label} (${b.days} Tage)">
+                F${b.box}: <strong>${leitnerStats.boxes[idx]}</strong>
+              </span>`
+            ).join('')}
+          </div>
+        </div>
+
         ${
-          !currentCard
+          leitnerStats.total === 0
             ? `<div class="empty-state">
                 <strong>Noch keine Karteikarten für ${esc(mod.short)}</strong>
-                Lege eigene Karten an oder füge direkt Fragen/Antworten aus deinem NotebookLM ein!
+                Lege eigene Karten an, importiere aus NotebookLM oder lass unten den KI-Tutor welche erstellen!
               </div>`
-            : `
-              <div class="flashcard-stage" data-action="card-flip" role="button" tabindex="0" aria-label="Karte umdrehen">
-                <div class="flashcard-box ${flipped ? 'is-flipped' : ''}" style="min-height:195px; padding:20px;">
-                  <div class="flex-between">
-                    <span class="badge ${currentCard.box >= 3 ? 'badge-sage' : currentCard.box === 2 ? 'badge-ochre' : 'badge-neutral'}">
-                      ${currentCard.box >= 3 ? 'Sicher' : currentCard.box === 2 ? 'Am Üben' : 'Neu'}
-                    </span>
-                    <span class="text-xs mono text-muted">${cIdx + 1} / ${orderedCards.length}</span>
+            : !currentCard
+              ? `<div class="empty-state" style="padding:26px 14px;">
+                  <strong>Alle fälligen Karten für ${esc(mod.short)} geschafft!</strong>
+                  Du bist für heute auf Stand. Komm morgen wieder oder übe trotzdem alle ${leitnerStats.total} Karten.
+                  <div class="mt-md">
+                    <button class="btn btn-secondary btn-sm" data-action="set-card-due-filter" data-value="all">
+                      Alle ${leitnerStats.total} Karten anzeigen
+                    </button>
                   </div>
-                  <div>
-                    <div class="text-xs text-muted fw-600" style="text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
-                      ${flipped ? 'Antwort' : 'Frage'}
+                </div>`
+              : `
+                <div class="flashcard-stage" data-action="card-flip" role="button" tabindex="0" aria-label="Karte umdrehen">
+                  <div class="flashcard-box ${flipped ? 'is-flipped' : ''}" style="min-height:195px; padding:20px;">
+                    <div class="flex-between">
+                      <span class="badge ${cardBoxMeta.badgeClass}">
+                        ${esc(cardBoxMeta.label)}
+                      </span>
+                      <span class="text-xs mono text-muted">${cIdx + 1} / ${orderedCards.length}</span>
                     </div>
-                    <div class="flashcard-text">${esc(flipped ? currentCard.back : currentCard.front)}</div>
-                  </div>
-                  <div class="text-xs text-muted">
-                    ${flipped ? 'Unten bewerten' : 'Tippen zum Umdrehen'}
+                    <div>
+                      <div class="text-xs text-muted fw-600" style="text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">
+                        ${flipped ? 'Antwort' : 'Frage'}
+                      </div>
+                      <div class="flashcard-text">${esc(flipped ? currentCard.back : currentCard.front)}</div>
+                    </div>
+                    <div class="flex-between text-xs text-muted">
+                      <span>${flipped ? 'Unten nach Sicherheit bewerten' : 'Tippen zum Umdrehen'}</span>
+                      <span class="mono">${currentCard.nextReview && currentCard.nextReview > todayIso ? `Nächste: ${formatShortDateDE(currentCard.nextReview)}` : 'Heute fällig'}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="flex-between mt-md" style="flex-wrap:wrap;">
-                <div class="flex-row" style="gap:5px;">
-                  <button class="btn btn-secondary btn-sm" data-action="card-prev">${ICONS.chevronLeft}</button>
-                  <button class="btn btn-secondary btn-sm" data-action="card-flip">${flipped ? 'Frage' : 'Antwort'}</button>
-                  <button class="icon-btn" style="width:32px;height:32px;" data-action="delete-flashcard" data-id="${esc(currentCard.id)}" aria-label="Karte löschen">${ICONS.trash}</button>
+                <div class="flex-between mt-md" style="flex-wrap:wrap; gap:8px;">
+                  <div class="flex-row" style="gap:5px;">
+                    <button class="btn btn-secondary btn-sm" data-action="card-prev" aria-label="Vorherige Karte">${ICONS.chevronLeft}</button>
+                    <button class="btn btn-secondary btn-sm" data-action="card-flip">${flipped ? 'Frage' : 'Antwort'}</button>
+                    <button class="icon-btn" style="width:32px;height:32px;" data-action="delete-flashcard" data-id="${esc(currentCard.id)}" aria-label="Karte löschen">${ICONS.trash}</button>
+                  </div>
+                  <div class="flex-row" style="gap:5px;">
+                    <button class="btn btn-danger-soft btn-sm" data-action="card-rate" data-id="${esc(currentCard.id)}" data-result="again">
+                      Nochmal <span class="mono" style="opacity:0.8;">(${intervals.againLabel})</span>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" data-action="card-rate" data-id="${esc(currentCard.id)}" data-result="hard">
+                      Schwer <span class="mono" style="opacity:0.8;">(${intervals.hardLabel})</span>
+                    </button>
+                    <button class="btn btn-primary btn-sm" data-action="card-rate" data-id="${esc(currentCard.id)}" data-result="good">
+                      ${ICONS.check} Gewusst <span class="mono" style="opacity:0.85;">(${intervals.goodLabel})</span>
+                    </button>
+                  </div>
                 </div>
-                <div class="flex-row" style="gap:6px;">
-                  <button class="btn btn-danger-soft btn-sm" data-action="card-rate" data-id="${esc(currentCard.id)}" data-result="again">
-                    Nochmal
-                  </button>
-                  <button class="btn btn-primary btn-sm" data-action="card-rate" data-id="${esc(currentCard.id)}" data-result="good">
-                    ${ICONS.check} Gewusst
-                  </button>
-                </div>
-              </div>
-            `
+              `
         }
       </section>
 
@@ -271,7 +324,7 @@ function renderModulesTab(state, ui) {
         <div class="section-head">
           <div>
             <h3 class="section-title">Notebook-Infos & Skript-Notizen</h3>
-            <div class="text-xs text-muted">Offline-Zusammenfassungen aus NotebookLM / Skript</div>
+            <div class="text-xs text-muted">Offline-Zusammenfassungen aus NotebookLM / Moodle</div>
           </div>
           <div class="flex-row" style="gap:5px;">
             <button
@@ -297,7 +350,7 @@ function renderModulesTab(state, ui) {
           (mod.notebookNotes || []).length === 0
             ? `<div class="empty-state" style="padding:20px 12px;">
                 <strong>Noch keine Infos aus deinem Notebook gespeichert</strong>
-                Kopiere Zusammenfassungen oder Studienleitfäden aus NotebookLM über „+ Info“ hinein — dann hast du alles auch offline im Hörsaal griffbereit.
+                Kopiere Zusammenfassungen über „+ Info“ hinein — oder nutze auf dem Pixel 8 direkt <strong>„Teilen → Studia“</strong> in NotebookLM/Moodle!
               </div>`
             : `<div class="timeline-list">
                 ${(mod.notebookNotes || [])
@@ -327,10 +380,15 @@ function renderModulesTab(state, ui) {
 
         <div class="guide-details mt-md">
           <div class="text-xs text-secondary">
-            <strong>So klappt’s mit NotebookLM:</strong> Google NotebookLM bietet bisher keine offene API, mit der externe Apps automatisch in private Notebooks lesen dürfen. Über <strong>„Notebook-Link“</strong> öffnest du oben dein genaues Fach-Notebook mit 1 Tipp — und über <strong>„Aus Notebook“</strong> oder <strong>„+ Info“</strong> übernimmst du Studienleitfäden & Fragen direkt als Offline-Infos und Karteikarten.
+            <strong>Tipp für Pixel 8 (Teilen-Ziel):</strong> Wenn Studia als App installiert ist, markiere in NotebookLM, Moodle oder Chrome einfach Text oder einen Link → <strong>Teilen → Studia</strong>. Dann landet der Inhalt direkt hier als Info oder Karteikarte.
           </div>
         </div>
       </section>
+    </div>
+
+    <!-- Gemini KI-Tutor Section -->
+    <div class="mt-lg">
+      ${renderGeminiTutorCard(mod, ui)}
     </div>
 
     <!-- Module-Specific Calculator & Formula Cheat Sheet -->
@@ -338,6 +396,246 @@ function renderModulesTab(state, ui) {
       ${renderModuleTools(mod, ui)}
     </div>
   `;
+}
+
+function renderGeminiTutorCard(mod, ui) {
+  const keyConfigured = hasGeminiKey();
+  const activeModel = getGeminiModel();
+  const modelMeta = GEMINI_MODELS.find((m) => m.id === activeModel) || GEMINI_MODELS[0];
+  const mode = ui.tutorMode || 'cards'; // 'cards' | 'explain' | 'exam'
+  const loading = Boolean(ui.tutorLoading);
+  const error = ui.tutorError || '';
+  const result = ui.tutorResultByModule?.[mod.id] || null;
+  const noteCount = (mod.notebookNotes || []).length;
+
+  return `
+    <section class="card tutor-card" aria-label="KI-Tutor mit Gemini">
+      <div class="section-head" style="margin-bottom:12px;">
+        <div>
+          <div class="flex-row" style="gap:7px;">
+            <h3 class="section-title" style="display:flex; align-items:center; gap:7px;">
+              ${ICONS.sparkles} KI-Tutor · ${esc(mod.short)}
+            </h3>
+            <span class="badge badge-sage mono">${esc(modelMeta.id)}</span>
+          </div>
+          <div class="text-xs text-muted">
+            Erzeugt Karteikarten aus deinen Notizen, erklärt Übungsaufgaben Schritt für Schritt &amp; erstellt Klausur-Probefragen
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-action="open-modal" data-modal="settings">
+          ${ICONS.settings} API-Key &amp; Modell
+        </button>
+      </div>
+
+      ${
+        !keyConfigured
+          ? `
+            <div class="tutor-setup-box">
+              <div class="text-sm fw-700">Kostenlosen Gemini API-Key hinterlegen (bleibt nur auf diesem Gerät)</div>
+              <div class="text-xs text-secondary mt-sm">
+                Hole dir in 30 Sekunden einen kostenlosen Key bei <strong>Google AI Studio</strong> (Free Tier für Gemini 4 Hydrogen &amp; 3.5 Flash-Lite). Der Key wird niemals in Backups oder Google Drive hochgeladen.
+              </div>
+              <form class="inline-add-row mt-md" data-form="save-gemini-key">
+                <input
+                  type="password"
+                  name="apiKey"
+                  class="input mono"
+                  style="font-size:0.84rem;"
+                  placeholder="AIzaSy…"
+                  autocomplete="off"
+                  required
+                />
+                <button type="submit" class="btn btn-primary btn-sm">Speichern</button>
+                <a
+                  class="btn btn-secondary btn-sm"
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Key holen ${ICONS.external}
+                </a>
+              </form>
+            </div>
+          `
+          : `
+            <div class="segmented-bar" role="tablist" aria-label="KI-Tutor Modus" style="margin-bottom:12px;">
+              <button class="segment-btn ${mode === 'cards' ? 'active' : ''}" data-action="set-tutor-mode" data-value="cards">
+                Karten erzeugen
+              </button>
+              <button class="segment-btn ${mode === 'explain' ? 'active' : ''}" data-action="set-tutor-mode" data-value="explain">
+                Aufgabe erklären
+              </button>
+              <button class="segment-btn ${mode === 'exam' ? 'active' : ''}" data-action="set-tutor-mode" data-value="exam">
+                Klausur-Probefragen
+              </button>
+            </div>
+
+            <form class="form-stack" data-form="tutor-run" data-mod-id="${esc(mod.id)}" data-mode="${esc(mode)}">
+              ${
+                mode === 'cards'
+                  ? `
+                    <div class="field">
+                      <label for="tutor-prompt">Thema (optional — sonst werden deine ${noteCount} Modul-Notizen ausgewertet)</label>
+                      <input
+                        id="tutor-prompt"
+                        name="prompt"
+                        class="input"
+                        placeholder="z. B. Spannungsteiler &amp; Kirchhoff oder leer lassen für Modul-Notizen…"
+                      />
+                    </div>
+                    <div class="flex-row">
+                      <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
+                        ${ICONS.sparkles} ${loading ? 'Gemini denkt nach…' : '6 Karteikarten generieren'}
+                      </button>
+                    </div>
+                  `
+                  : mode === 'explain'
+                    ? `
+                      <div class="field">
+                        <label for="tutor-prompt">Übungsaufgabe oder Konzept aus ${esc(mod.short)}</label>
+                        <textarea
+                          id="tutor-prompt"
+                          name="prompt"
+                          class="textarea"
+                          rows="3"
+                          placeholder="Füge deine Mathe-I-Aufgabe, GET-Schaltung oder BWL-Rechnung ein…"
+                          required
+                        ></textarea>
+                      </div>
+                      <div class="flex-row">
+                        <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
+                          ${ICONS.sparkles} ${loading ? 'Erklärung wird erstellt…' : 'Schritt für Schritt erklären'}
+                        </button>
+                      </div>
+                    `
+                    : `
+                      <div class="field">
+                        <label for="tutor-prompt">Schwerpunkt für die Klausur-Simulation (optional)</label>
+                        <input
+                          id="tutor-prompt"
+                          name="prompt"
+                          class="input"
+                          placeholder="z. B. Komplexe Zahlen, Zweierkomplement, Break-Even…"
+                        />
+                      </div>
+                      <div class="flex-row">
+                        <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
+                          ${ICONS.sparkles} ${loading ? 'Fragen werden erstellt…' : '3 Klausur-Probefragen erstellen'}
+                        </button>
+                      </div>
+                    `
+              }
+            </form>
+
+            ${
+              error
+                ? `<div class="note-card mt-md" style="background:var(--status-danger-soft); color:var(--status-danger);">
+                    <div class="text-xs fw-700">KI-Tutor Hinweis</div>
+                    <div class="text-xs">${esc(error)}</div>
+                  </div>`
+                : ''
+            }
+
+            ${renderTutorResult(mod, result)}
+          `
+      }
+    </section>
+  `;
+}
+
+function renderTutorResult(mod, result) {
+  if (!result) return '';
+
+  if (result.type === 'cards') {
+    const cards = result.cards || [];
+    return `
+      <div class="tutor-output mt-md">
+        <div class="flex-between" style="flex-wrap:wrap; margin-bottom:10px;">
+          <strong class="text-sm">${cards.length} Karteikarten-Vorschläge für ${esc(mod.short)}</strong>
+          <div class="flex-row">
+            <button class="btn btn-primary btn-sm" data-action="tutor-accept-cards" data-mod-id="${esc(mod.id)}">
+              ${ICONS.check} Alle ${cards.length} übernehmen
+            </button>
+            <button class="btn btn-ghost btn-sm" data-action="tutor-clear" data-mod-id="${esc(mod.id)}">Verwerfen</button>
+          </div>
+        </div>
+        <div class="timeline-list">
+          ${cards
+            .map(
+              (c) => `
+            <div class="note-card">
+              <div class="fw-700 text-xs">${esc(c.front)}</div>
+              <div class="text-xs text-secondary" style="white-space:pre-wrap;">${esc(c.back)}</div>
+            </div>`
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if (result.type === 'explain') {
+    return `
+      <div class="tutor-output mt-md">
+        <div class="flex-between" style="margin-bottom:8px;">
+          <strong class="text-sm">Erklärung (${esc(mod.short)})</strong>
+          <div class="flex-row">
+            <button class="btn btn-soft btn-sm" data-action="tutor-save-note" data-mod-id="${esc(mod.id)}">
+              Als Modul-Info speichern
+            </button>
+            <button class="btn btn-ghost btn-sm" data-action="tutor-clear" data-mod-id="${esc(mod.id)}">Leeren</button>
+          </div>
+        </div>
+        <div class="tutor-answer-text">${esc(result.text)}</div>
+      </div>
+    `;
+  }
+
+  if (result.type === 'exam') {
+    const items = result.items || [];
+    if (items.length === 0) {
+      return `
+        <div class="tutor-output mt-md">
+          <div class="tutor-answer-text">${esc(result.rawText || '')}</div>
+        </div>
+      `;
+    }
+    return `
+      <div class="tutor-output mt-md">
+        <div class="flex-between" style="margin-bottom:10px;">
+          <strong class="text-sm">Klausur-Probefragen · ${esc(mod.short)}</strong>
+          <button class="btn btn-ghost btn-sm" data-action="tutor-clear" data-mod-id="${esc(mod.id)}">Leeren</button>
+        </div>
+        <div class="timeline-list">
+          ${items
+            .map(
+              (item, idx) => `
+            <div class="note-card">
+              <div class="flex-between" style="align-items:flex-start;">
+                <div class="fw-700 text-sm" style="white-space:pre-wrap;">${idx + 1}. ${esc(item.question)}</div>
+                <button
+                  class="btn btn-soft btn-sm"
+                  style="flex-shrink:0;"
+                  data-action="tutor-save-question-card"
+                  data-mod-id="${esc(mod.id)}"
+                  data-idx="${idx}"
+                >
+                  + Karte
+                </button>
+              </div>
+              <details class="guide-details mt-sm" style="margin-top:8px;">
+                <summary>Musterlösung anzeigen</summary>
+                <div class="text-xs text-secondary mt-sm" style="white-space:pre-wrap;">${esc(item.solution)}</div>
+              </details>
+            </div>`
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  return '';
 }
 
 /* ---------- Tailored Tools & Formula Sheets per Module ---------- */
@@ -668,7 +966,7 @@ function fmtEng(num) {
 }
 
 /* ==========================================================================
-   SUB-TAB 2: ABGABEN (Feste Semester-Abgaben + Einmalige Aufgaben)
+   SUB-TAB 2: ABGABEN (Feste Semester-Abgaben + Google-Serien + Einmalige)
    ========================================================================== */
 function renderTasksTab(state) {
   const now = new Date();
@@ -683,16 +981,39 @@ function renderTasksTab(state) {
       return (a.due || '9999').localeCompare(b.due || '9999');
     });
 
+  const googleConnected = Boolean(state.google?.connected);
+
   return `
     <div class="toolkit-grid">
       <section class="card">
         <div class="section-head">
           <div>
             <h2 class="section-title">Feste Semester-Abgaben</h2>
-            <div class="text-xs text-muted">Abhaken schiebt die Abgabe automatisch in den nächsten Rhythmus</div>
+            <div class="text-xs text-muted">Abhaken schiebt automatisch weiter · Ferienzeiten werden übersprungen</div>
           </div>
           <button class="section-link" data-action="open-modal" data-modal="task">+ Neu</button>
         </div>
+
+        ${
+          recurring.length > 0
+            ? `<div class="semester-strip mb-md" style="margin-bottom:14px;">
+                <div class="text-xs text-secondary">
+                  <strong>Native Handy-Erinnerungen:</strong> Lege alle ${recurring.length} Abgabe-Serien (inkl. Vorabend- &amp; 2-Std.-Erinnerung, ohne Weihnachtsferien) in deinem Google Kalender an.
+                </div>
+                <div class="flex-row" style="flex-shrink:0;">
+                  ${
+                    googleConnected
+                      ? `<button class="btn btn-google btn-sm" data-action="push-all-recurring-google">
+                          ${ICONS.bell} Alle in Google
+                        </button>`
+                      : `<button class="btn btn-secondary btn-sm" data-action="export-ics-recurring">
+                          ${ICONS.bell} .ics Erinnerungen
+                        </button>`
+                  }
+                </div>
+              </div>`
+            : ''
+        }
 
         ${
           recurring.length === 0
@@ -702,7 +1023,17 @@ function renderTasksTab(state) {
                   .map((tk) => {
                     const diff = daysBetween(tk.due, now);
                     const step = tk.recurrence === 'biweekly' ? 14 : 7;
-                    const nextAfter = addDaysToISO(tk.due, step);
+                    const nextAfter = nextLectureOccurrence(tk.due, step, state.semesterConfig);
+                    const skippedHoliday = Boolean(
+                      findHolidayForDate(
+                        new Date(
+                          new Date(`${tk.due}T12:00:00`).getTime() + step * 86400000
+                        )
+                          .toISOString()
+                          .slice(0, 10),
+                        state.semesterConfig
+                      )
+                    );
                     const timeTxt = tk.dueTime === '23:59' ? '24:00 Uhr' : `${tk.dueTime || '12:00'} Uhr`;
                     const urgencyBadge =
                       diff < 0
@@ -719,14 +1050,23 @@ function renderTasksTab(state) {
                           <div class="flex-row" style="gap:6px; margin-bottom:4px;">
                             <span class="badge badge-slate">${esc(tk.course)}</span>
                             ${urgencyBadge}
+                            ${tk.googleEventId ? `<span class="badge badge-google">✓ Erinnerung aktiv</span>` : ''}
                           </div>
                           <div class="fw-700" style="font-size:0.95rem;">${esc(tk.title)}</div>
                           <div class="text-xs text-muted mt-sm">
-                            ${tk.recurrence === 'biweekly' ? 'Alle 2 Wochen' : 'Jede Woche'} · Danach am ${formatShortDateDE(nextAfter)}
+                            ${tk.recurrence === 'biweekly' ? 'Alle 2 Wochen' : 'Jede Woche'} · Danach am ${formatShortDateDE(nextAfter)}${skippedHoliday ? ' (Ferien übersprungen)' : ''}
                             ${tk.streak > 0 ? ` · <strong>${tk.streak}× erledigt</strong>` : ''}
                           </div>
                         </div>
                         <div class="flex-row" style="flex-wrap:nowrap; flex-shrink:0;">
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            data-action="push-recurring-task-google"
+                            data-id="${esc(tk.id)}"
+                            title="Als Serientermin mit Erinnerung in Google Kalender speichern"
+                          >
+                            ${ICONS.bell} ${googleConnected ? (tk.googleEventId ? 'Update' : 'Google') : '.ics'}
+                          </button>
                           <button class="btn btn-primary btn-sm" data-action="complete-recurring-task" data-id="${esc(tk.id)}">
                             ${ICONS.check} Abgehakt
                           </button>
@@ -760,9 +1100,9 @@ function renderTasksTab(state) {
 }
 
 /* ==========================================================================
-   SUB-TAB 3: BIB-FOKUS
+   SUB-TAB 3: BIB-FOKUS & LERNZEIT-STATISTIK PRO MODUL
    ========================================================================== */
-function renderFocusTab(state) {
+function renderFocusTab(state, ui = {}) {
   const snap = focusTimer.getSnapshot();
   const radius = 104;
   const circumference = 2 * Math.PI * radius;
@@ -772,15 +1112,20 @@ function renderFocusTab(state) {
   if (!subjects.includes('Allgemein')) subjects.push('Allgemein');
   if (!subjects.includes(snap.subject)) subjects.unshift(snap.subject);
 
-  const totalsByCourse = new Map();
-  let totalMinutes = 0;
-  for (const ss of state.studySessions || []) {
-    const mins = Number(ss.minutes || 0);
-    totalMinutes += mins;
-    totalsByCourse.set(ss.course, (totalsByCourse.get(ss.course) || 0) + mins);
-  }
-  const rankedCourses = [...totalsByCourse.entries()].sort((a, b) => b[1] - a[1]);
-  const maxCourseMin = rankedCourses[0]?.[1] || 60;
+  const todayIso = isoDate();
+  const stats = computeStudyAnalytics(
+    state.studySessions || [],
+    state.modules || [],
+    state.studyGoalWeeklyMin,
+    todayIso
+  );
+  const scope = ui.studyStatsScope || 'week'; // 'week' | 'total'
+  const maxDayMin = Math.max(45, ...stats.weekDays.map((d) => d.minutes));
+  const maxModMin = Math.max(
+    30,
+    ...stats.moduleStats.map((m) => (scope === 'week' ? m.weekMinutes : m.totalMinutes))
+  );
+  const goalHoursOptions = [5, 10, 15, 20];
 
   return `
     <div class="toolkit-grid">
@@ -837,9 +1182,12 @@ function renderFocusTab(state) {
           </button>
         </div>
 
-        <div class="mt-md">
-          <button class="btn btn-soft btn-sm" data-action="focus-wakelock">
-            ${ICONS.phone} Display in der Bib wachhalten: <strong>${snap.wakeLockEnabled ? 'AN' : 'AUS'}</strong>
+        <div class="flex-row mt-md" style="justify-content:center; gap:6px;">
+          <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="15">+15m</button>
+          <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="30">+30m</button>
+          <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="60">+60m</button>
+          <button class="btn btn-ghost btn-sm" data-action="focus-wakelock">
+            ${ICONS.phone} Wach: <strong>${snap.wakeLockEnabled ? 'AN' : 'AUS'}</strong>
           </button>
         </div>
       </section>
@@ -847,33 +1195,99 @@ function renderFocusTab(state) {
       <section class="card">
         <div class="section-head">
           <div>
-            <h2 class="section-title">Deine Lernzeit nach Fach</h2>
-            <div class="text-xs text-muted">Gesamt: ${(totalMinutes / 60).toFixed(1).replace('.', ',')} Std. (${totalMinutes} Min)</div>
+            <h2 class="section-title">Lernzeit-Statistik &amp; Wochenziel</h2>
+            <div class="text-xs text-muted">
+              Diese Woche: ${(stats.weekMinutes / 60).toFixed(1).replace('.', ',')} Std. · Gesamt: ${(stats.totalMinutes / 60).toFixed(1).replace('.', ',')} Std.
+            </div>
           </div>
-          <button class="btn btn-soft btn-sm" data-action="log-manual-study">+ 30 Min</button>
+          <span class="badge ${stats.streak.current > 0 ? 'badge-terracotta' : 'badge-neutral'} mono" style="display:inline-flex; align-items:center; gap:4px;">
+            ${ICONS.flame} ${stats.streak.current} ${stats.streak.current === 1 ? 'Tag' : 'Tage'} Streak
+          </span>
+        </div>
+
+        <!-- Weekly Goal Bar & Quick Goal Picker -->
+        <div class="study-goal-box">
+          <div class="flex-between text-xs" style="margin-bottom:6px;">
+            <span class="fw-600">Wochenziel (${(stats.weeklyGoalMin / 60).toFixed(0)} Std.)</span>
+            <span class="mono fw-700">${stats.weekGoalPct}% · ${stats.remainingGoalMin > 0 ? `noch ${(stats.remainingGoalMin / 60).toFixed(1).replace('.', ',')} Std.` : 'Geschafft!'}</span>
+          </div>
+          <div class="progress-track" style="height:9px;">
+            <div class="progress-fill ${stats.weekGoalPct >= 100 ? '' : stats.weekGoalPct >= 40 ? '' : 'warn'}" style="width:${stats.weekGoalPct}%"></div>
+          </div>
+          <div class="flex-row mt-sm" style="gap:5px; justify-content:space-between;">
+            <span class="text-xs text-muted">Ziel anpassen:</span>
+            <div class="flex-row" style="gap:4px;">
+              ${goalHoursOptions
+                .map((hrs) => {
+                  const active = stats.weeklyGoalMin === hrs * 60;
+                  return `<button class="btn ${active ? 'btn-primary' : 'btn-ghost'} btn-sm" style="padding:3px 9px; font-size:0.74rem;" data-action="set-weekly-goal" data-minutes="${hrs * 60}">${hrs}h</button>`;
+                })
+                .join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- 7-Day Rhythm Mini Bar Chart (Mo..So) -->
+        <div class="week-bars" aria-label="Lernminuten diese Woche (Mo–So)">
+          ${stats.weekDays
+            .map((d) => {
+              const hPct = d.minutes > 0 ? Math.max(12, Math.round((d.minutes / maxDayMin) * 100)) : 5;
+              return `
+                <div class="week-bar-col ${d.isToday ? 'is-today' : ''}">
+                  <div class="week-bar-val mono">${d.minutes > 0 ? `${d.minutes}m` : ''}</div>
+                  <div class="week-bar-track">
+                    <div class="week-bar-fill ${d.minutes === 0 ? 'empty' : ''}" style="height:${hPct}%"></div>
+                  </div>
+                  <div class="week-bar-label">${d.label}</div>
+                </div>`;
+            })
+            .join('')}
+        </div>
+
+        <!-- Per-Module Coverage (Week vs Total) -->
+        <div class="flex-between mt-md" style="margin-bottom:10px;">
+          <strong class="text-sm">Verteilung pro Modul</strong>
+          <div class="segmented-bar" role="tablist">
+            <button class="segment-btn ${scope === 'week' ? 'active' : ''}" data-action="set-study-scope" data-value="week">Woche</button>
+            <button class="segment-btn ${scope === 'total' ? 'active' : ''}" data-action="set-study-scope" data-value="total">Gesamt</button>
+          </div>
+        </div>
+
+        <div class="bar-chart">
+          ${stats.moduleStats
+            .map((m) => {
+              const mins = scope === 'week' ? m.weekMinutes : m.totalMinutes;
+              const pct = mins > 0 ? Math.max(6, Math.round((mins / maxModMin) * 100)) : 0;
+              const hrs = (mins / 60).toFixed(1).replace('.', ',');
+              const col = COURSE_COLORS[m.color] || COURSE_COLORS.sage;
+              return `
+                <div class="bar-row">
+                  <div class="bar-row-head">
+                    <span class="fw-600 flex-row" style="gap:6px;">
+                      <span class="module-dot" style="background:${col.hex}; width:8px; height:8px;"></span>
+                      ${esc(m.short)}
+                    </span>
+                    <span class="mono text-secondary">${hrs} Std. (${mins} Min)</span>
+                  </div>
+                  <div class="progress-track">
+                    <div class="progress-fill" style="width:${pct}%; background:${col.hex};"></div>
+                  </div>
+                </div>`;
+            })
+            .join('')}
         </div>
 
         ${
-          rankedCourses.length === 0
-            ? `<div class="empty-state"><strong>Noch keine Sessions geloggt</strong></div>`
-            : `<div class="bar-chart">
-                ${rankedCourses
-                  .map(([course, mins]) => {
-                    const pct = Math.max(8, Math.round((mins / maxCourseMin) * 100));
-                    const hrs = (mins / 60).toFixed(1).replace('.', ',');
-                    return `
-                      <div class="bar-row">
-                        <div class="bar-row-head">
-                          <span class="fw-600">${esc(course)}</span>
-                          <span class="mono text-secondary">${hrs} Std. (${mins} Min)</span>
-                        </div>
-                        <div class="progress-track">
-                          <div class="progress-fill" style="width:${pct}%"></div>
-                        </div>
-                      </div>`;
-                  })
-                  .join('')}
+          stats.leastStudied
+            ? `<div class="semester-strip mt-md" style="margin-top:14px;">
+                <div class="text-xs text-secondary">
+                  <strong>Balance-Tipp:</strong> <strong>${esc(stats.leastStudied.short)}</strong> hatte diese Woche erst <strong>${stats.leastStudied.weekMinutes} Min</strong> Lernzeit.
+                </div>
+                <button class="btn btn-soft btn-sm" data-action="start-focus-quick" data-subject="${esc(stats.leastStudied.courseKey)}">
+                  ${ICONS.play} Starten
+                </button>
               </div>`
+            : ''
         }
       </section>
     </div>

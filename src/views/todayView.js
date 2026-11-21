@@ -9,16 +9,19 @@ import {
   getMondayIndex,
   isoDate,
 } from '../data/defaults.js';
+import { hasActiveGoogleToken } from '../services/googleCalendar.js';
 import {
   computeExamReadiness,
   computeGpaStats,
   formatGradeDE,
   getAllCalendarEvents,
-  getTodayStudyMinutes,
   getUnifiedExams,
   timeToMinutes,
 } from '../state/store.js';
 import { esc } from '../utils/html.js';
+import { getSemesterBannerInfo } from '../utils/semester.js';
+import { getLeitnerStats } from '../utils/spacedRepetition.js';
+import { computeStudyAnalytics } from '../utils/studyStats.js';
 
 export function renderTodayView(state) {
   const now = new Date();
@@ -29,26 +32,30 @@ export function renderTodayView(state) {
   const nowMins = now.getHours() * 60 + now.getMinutes();
 
   const dateHeading = `${WEEKDAYS_FULL[monIdx]}, ${now.getDate()}. ${MONTHS_DE[now.getMonth()]}`;
+  const semInfo = getSemesterBannerInfo(todayIso, state.semesterConfig);
+  const isLectureDay = semInfo.status.isLectureDay;
 
-  // Today's timetable entries matching current KW parity
-  const todayCourses = (state.timetable || [])
-    .filter(
-      (c) =>
-        Number(c.day) === monIdx &&
-        (c.weekParity === 'all' || c.weekParity === kwParity)
-    )
-    .map((c) => ({
-      id: c.id,
-      kind: 'course',
-      title: c.title,
-      badge: c.type,
-      start: c.start,
-      end: c.end,
-      location: c.room,
-      sub: c.lecturer,
-      colorHex: (COURSE_COLORS[c.color] || COURSE_COLORS.sage).hex,
-      badgeClass: (COURSE_COLORS[c.color] || COURSE_COLORS.sage).badge,
-    }));
+  // Today's timetable entries (automatically hidden during holidays & after lecturesEnd)
+  const todayCourses = isLectureDay
+    ? (state.timetable || [])
+        .filter(
+          (c) =>
+            Number(c.day) === monIdx &&
+            (c.weekParity === 'all' || c.weekParity === kwParity)
+        )
+        .map((c) => ({
+          id: c.id,
+          kind: 'course',
+          title: c.title,
+          badge: c.type,
+          start: c.start,
+          end: c.end,
+          location: c.room,
+          sub: c.lecturer,
+          colorHex: (COURSE_COLORS[c.color] || COURSE_COLORS.sage).hex,
+          badgeClass: (COURSE_COLORS[c.color] || COURSE_COLORS.sage).badge,
+        }))
+    : [];
 
   // Today's calendar & Google events
   const todayCalEvents = getAllCalendarEvents(state)
@@ -85,6 +92,21 @@ export function renderTodayView(state) {
       return da.localeCompare(db);
     });
 
+  // Spaced Repetition stats across all modules
+  const cardStats = getLeitnerStats(state.flashcards || [], null, todayIso);
+  const firstDueModule =
+    (state.modules || []).find(
+      (m) => getLeitnerStats(state.flashcards || [], m.courseKey, todayIso).dueCount > 0
+    ) || (state.modules || [])[0];
+
+  // Study time analytics (streak + weekly goal)
+  const studyStats = computeStudyAnalytics(
+    state.studySessions || [],
+    state.modules || [],
+    state.studyGoalWeeklyMin,
+    todayIso
+  );
+
   // Determine current or next-up block
   const activeOrNext = timeline.find((item) => {
     if (!item.start || item.start === 'Ganztägig') return false;
@@ -95,8 +117,22 @@ export function renderTodayView(state) {
   const nextTask = openTasks[0];
   const nextTaskDays = nextTask?.due ? daysBetween(nextTask.due, now) : null;
 
-  let heroEyebrow = `KW ${kw} · ${state.profile.semester}`;
-  let heroTitle = 'Vorlesungsfreier Tag — Zeit für Abgaben & Karteikarten';
+  const semCountdownTxt =
+    semInfo.status.phase === 'holiday'
+      ? semInfo.status.label
+      : semInfo.status.phase === 'exams'
+        ? 'Prüfungszeitraum'
+        : semInfo.weeksLeft > 0
+          ? `Noch ${semInfo.weeksLeft} Vorlesungswochen`
+          : semInfo.status.label;
+
+  let heroEyebrow = `KW ${kw} · ${semCountdownTxt}`;
+  let heroTitle =
+    semInfo.status.phase === 'holiday'
+      ? semInfo.status.label
+      : semInfo.status.phase === 'exams'
+        ? 'Prüfungsphase — Fokus auf Klausuren & Karteikarten'
+        : 'Vorlesungsfreier Tag — Zeit für Abgaben & Karteikarten';
   let heroMeta = nextTask
     ? `<span>Nächste Abgabe: <strong>${esc(nextTask.title)}</strong> (${nextTaskDays === 0 ? 'Heute' : nextTaskDays === 1 ? 'Morgen' : formatShortDateDE(nextTask.due)}${nextTask.dueTime ? ` · ${nextTask.dueTime === '23:59' ? '24:00' : nextTask.dueTime}` : ''})</span>`
     : `<span>${todayCourses.length} Vorlesungen · ${todayCalEvents.length} Termine heute</span>`;
@@ -123,20 +159,16 @@ export function renderTodayView(state) {
     `;
   }
 
-  // Upcoming exams (Google Calendar auto-detected + manual!)
   const upcomingExams = getUnifiedExams(state).filter((ex) => !ex.completed);
   const nextExam = upcomingExams[0];
   const nextExamDays = nextExam ? daysBetween(nextExam.date, now) : null;
-
   const gpaStats = computeGpaStats(state.grades || [], state.profile.targetEcts);
-  const studyMinsToday = getTodayStudyMinutes(state);
-  const activeEcts = (state.timetable || []).reduce((s, c) => s + Number(c.ects || 0), 0);
-  const masteredCards = (state.flashcards || []).filter((f) => f.box >= 3).length;
+  const needsGoogleRefresh = state.google.connected && !hasActiveGoogleToken();
 
   return `
     <header class="page-header">
       <div>
-        <div class="page-eyebrow">${esc(dateHeading)} · KW ${kw} · ${esc(state.profile.university || 'HSD')}</div>
+        <div class="page-eyebrow">${esc(dateHeading)} · KW ${kw} · ${esc(semCountdownTxt)}</div>
         <h1 class="page-title">Guten Studientag</h1>
       </div>
       <div class="page-actions">
@@ -149,6 +181,28 @@ export function renderTodayView(state) {
       </div>
     </header>
 
+    ${
+      needsGoogleRefresh
+        ? `<div class="semester-strip mb-md">
+            <div class="text-xs text-secondary">
+              <strong>Google-Sitzung pausiert:</strong> Deine geladenen Termine bleiben offline sichtbar. Tippe rechts zum schnellen Aktualisieren.
+            </div>
+            <button class="btn btn-google btn-sm" data-action="refresh-google-session">${ICONS.sync} Sitzung erneuern</button>
+          </div>`
+        : ''
+    }
+
+    ${
+      semInfo.examRegActive
+        ? `<div class="semester-strip mb-md" style="border-color: var(--accent-ochre); background: var(--accent-ochre-soft);">
+            <div class="text-xs">
+              <strong>Prüfungsanmeldung HSD (eCampus):</strong> Läuft noch bis <strong>${formatShortDateDE(semInfo.config.examRegEnd)} (12:00 Uhr)</strong> — alle 1.-Semester-Klausuren angemeldet?
+            </div>
+            <a class="btn btn-secondary btn-sm" href="https://ossc.hs-duesseldorf.de" target="_blank" rel="noopener noreferrer">OSSC öffnen ${ICONS.external}</a>
+          </div>`
+        : ''
+    }
+
     <section class="today-hero" aria-label="Nächster Termin">
       <div>
         <div class="today-hero-eyebrow">${esc(heroEyebrow)}</div>
@@ -157,7 +211,9 @@ export function renderTodayView(state) {
       </div>
       <div class="today-hero-actions">
         <button class="btn-hero" data-nav="timetable">${ICONS.timetable} Stundenplan</button>
-        <button class="btn-hero" data-nav="toolkit" data-sub="modules">Module & Notebooks</button>
+        <button class="btn-hero" data-action="open-due-cards" data-mod-id="${esc(firstDueModule?.id || 'mod_get')}">
+          ${cardStats.dueCount > 0 ? `${cardStats.dueCount} Karten fällig` : 'Module & Tutor'}
+        </button>
       </div>
     </section>
 
@@ -167,25 +223,39 @@ export function renderTodayView(state) {
         <div class="stat-value">${nextTask ? (nextTaskDays <= 0 ? 'Heute' : nextTaskDays === 1 ? 'Morgen' : `${nextTaskDays} Tage`) : '–'}</div>
         <div class="stat-sub">${nextTask ? `${esc(nextTask.course)} · ${nextTask.dueTime === '23:59' ? '24:00' : esc(nextTask.dueTime || '')}` : 'Alles erledigt'}</div>
       </div>
-      <div class="stat-tile">
-        <div class="stat-label">Nächste Klausur</div>
-        <div class="stat-value">${nextExam ? (nextExamDays <= 0 ? 'Heute' : `${nextExamDays} Tage`) : '–'}</div>
-        <div class="stat-sub">${nextExam ? esc(nextExam.title) : 'Aus Google Kalender'}</div>
+      <div class="stat-tile" style="cursor:pointer;" data-action="open-due-cards" data-mod-id="${esc(firstDueModule?.id || 'mod_get')}">
+        <div class="stat-label">Karten heute fällig</div>
+        <div class="stat-value" style="color:${cardStats.dueCount > 0 ? 'var(--accent-primary)' : 'var(--status-success)'};">${cardStats.dueCount}</div>
+        <div class="stat-sub">${cardStats.masteredCount}/${cardStats.total} sicher (Fach 4–5)</div>
+      </div>
+      <div class="stat-tile" style="cursor:pointer;" data-nav="toolkit" data-sub="focus">
+        <div class="stat-label">Wochenziel · Streak</div>
+        <div class="stat-value">${studyStats.weekGoalPct}%</div>
+        <div class="stat-sub">${(studyStats.weekMinutes / 60).toFixed(1).replace('.', ',')}/${(studyStats.weeklyGoalMin / 60).toFixed(0)} Std. · ${studyStats.streak.current} T. Streak</div>
       </div>
       <div class="stat-tile">
-        <div class="stat-label">Heute gelernt</div>
-        <div class="stat-value">${studyMinsToday} Min</div>
-        <div class="stat-sub">${masteredCards}/${(state.flashcards || []).length} Karten sicher</div>
-      </div>
-      <div class="stat-tile">
-        <div class="stat-label">${gpaStats.gpa ? 'Notenschnitt' : '1. Semester'}</div>
-        <div class="stat-value">${gpaStats.gpa ? formatGradeDE(gpaStats.gpa) : `${activeEcts} ECTS`}</div>
-        <div class="stat-sub">${gpaStats.gpa ? `${gpaStats.totalEcts} / ${state.profile.targetEcts} ECTS` : `6 Module · Ziel ${state.profile.targetEcts} ECTS`}</div>
+        <div class="stat-label">${nextExam ? 'Nächste Klausur' : gpaStats.gpa ? 'Notenschnitt' : 'Semester'}</div>
+        <div class="stat-value">${nextExam ? (nextExamDays <= 0 ? 'Heute' : `${nextExamDays} Tage`) : gpaStats.gpa ? formatGradeDE(gpaStats.gpa) : `${semInfo.weeksLeft} Wo.`}</div>
+        <div class="stat-sub">${nextExam ? esc(nextExam.title) : semInfo.nextHoliday ? `Ferien ab ${formatShortDateDE(semInfo.nextHoliday.start)}` : esc(semInfo.status.label)}</div>
       </div>
     </section>
 
     <div class="today-grid">
       <div class="today-col">
+        ${
+          cardStats.dueCount > 0
+            ? `<section class="card card-compact flex-between" style="flex-wrap:wrap; border-color:var(--accent-primary-soft); background:var(--accent-primary-softer);">
+                <div>
+                  <div class="fw-700" style="font-size:0.95rem;">Heute fällig: ${cardStats.dueCount} Karteikarten</div>
+                  <div class="text-xs text-secondary">5-Fächer Spaced Repetition · Starte mit <strong>${esc(firstDueModule?.short || 'GET I')}</strong></div>
+                </div>
+                <button class="btn btn-primary btn-sm" data-action="open-due-cards" data-mod-id="${esc(firstDueModule?.id || 'mod_get')}">
+                  Jetzt abfragen →
+                </button>
+              </section>`
+            : ''
+        }
+
         <section class="card">
           <div class="section-head">
             <h2 class="section-title">Anstehende Abgaben & Pflichtaufgaben</h2>
@@ -208,8 +278,12 @@ export function renderTodayView(state) {
           ${
             timeline.length === 0
               ? `<div class="empty-state">
-                  <strong>Heute stehen keine Vorlesungen an.</strong>
-                  Perfekt für Mathe-Arbeitsblatt, Informationstechnik-Abgabe oder eine Runde Karteikarten.
+                  <strong>${!isLectureDay ? esc(semInfo.status.label) : 'Heute stehen keine Vorlesungen an.'}</strong>
+                  ${
+                    semInfo.status.phase === 'holiday'
+                      ? 'Genieße die vorlesungsfreie Zeit — Vorlesungen & Abgaben pausieren automatisch.'
+                      : 'Perfekt für Mathe-Arbeitsblatt, Informationstechnik-Abgabe oder eine Runde Karteikarten.'
+                  }
                 </div>`
               : `<div class="timeline-list">
                   ${timeline
@@ -353,6 +427,7 @@ export function renderTaskRow(tk, now = new Date()) {
               ? `<span class="badge badge-slate">${tk.recurrence === 'biweekly' ? 'Alle 2 Wo.' : 'Wöchentlich'}${tk.streak > 0 ? ` · ${tk.streak}× erledigt` : ''}</span>`
               : ''
           }
+          ${tk.googleEventId ? `<span class="badge badge-google">Im Kalender</span>` : ''}
         </div>
       </div>
       <button class="icon-btn" data-action="delete-task" data-id="${esc(tk.id)}" aria-label="Aufgabe löschen">

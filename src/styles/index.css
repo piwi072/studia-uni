@@ -2249,6 +2249,149 @@ a {
   }
 }
 
+/* Semester Strip, Holiday Cells, Leitner Strip, KI-Tutor & 7-Day Study Stats */
+.semester-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.semester-strip.is-break {
+  background: var(--accent-ochre-soft);
+  border-color: var(--accent-ochre);
+}
+
+.cal-cell.is-holiday:not(.selected) {
+  background: var(--accent-ochre-soft);
+}
+
+.leitner-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.leitner-pip {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--ink-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.leitner-pip.has-cards {
+  background: var(--accent-primary-softer);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary-soft);
+}
+
+.tutor-card {
+  border-color: var(--accent-primary-soft);
+}
+
+.tutor-setup-box {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-softer);
+  border: 1px dashed var(--accent-primary-soft);
+}
+
+.tutor-output {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tutor-answer-text {
+  font-size: 0.87rem;
+  line-height: 1.58;
+  color: var(--ink-primary);
+  white-space: pre-wrap;
+  background: var(--bg-subtle);
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+.study-goal-box {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 14px;
+}
+
+.week-bars {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+  padding: 10px 6px 6px;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+}
+
+.week-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.week-bar-val {
+  font-size: 0.68rem;
+  color: var(--ink-muted);
+  min-height: 14px;
+}
+
+.week-bar-track {
+  width: 100%;
+  max-width: 28px;
+  height: 76px;
+  border-radius: 7px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.week-bar-fill {
+  width: 100%;
+  border-radius: 5px;
+  background: var(--accent-primary);
+  transition: height 0.25s var(--ease-out);
+}
+
+.week-bar-fill.empty {
+  background: var(--border-subtle);
+}
+
+.week-bar-col.is-today .week-bar-label {
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.week-bar-col.is-today .week-bar-track {
+  border-color: var(--accent-primary);
+}
+
+.week-bar-label {
+  font-size: 0.72rem;
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+
 /* Helper Utilities */
 .flex-between {
   display: flex;
@@ -2273,6 +2416,12 @@ a {
 .mt-lg {
   margin-top: 20px;
 }
+.mb-sm {
+  margin-bottom: 8px;
+}
+.mb-md {
+  margin-bottom: 14px;
+}
 .text-muted {
   color: var(--ink-muted);
 }
@@ -2291,4 +2440,5 @@ a {
 .fw-700 {
   font-weight: 700;
 }
+
 

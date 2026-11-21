@@ -10,8 +10,10 @@ import {
   isoDate,
   parseISODate,
 } from '../data/defaults.js';
+import { hasActiveGoogleToken } from '../services/googleCalendar.js';
 import { getAllCalendarEvents } from '../state/store.js';
 import { esc } from '../utils/html.js';
+import { findHolidayForDate, getSemesterDayStatus } from '../utils/semester.js';
 
 export function renderCalendarView(state, ui) {
   const todayIso = isoDate();
@@ -38,8 +40,10 @@ export function renderCalendarView(state, ui) {
   const selDateObj = parseISODate(selectedIso);
   const selMonIdx = getMondayIndex(selDateObj);
   const selKwParity = getISOWeek(selDateObj) % 2 === 0 ? 'even' : 'odd';
+  const selDayStatus = getSemesterDayStatus(selectedIso, state.semesterConfig);
+
   const dayCourses =
-    filter === 'google' || filter === 'exam' || filter === 'task'
+    !selDayStatus.isLectureDay || filter === 'google' || filter === 'exam' || filter === 'task'
       ? []
       : (state.timetable || [])
           .filter(
@@ -74,12 +78,14 @@ export function renderCalendarView(state, ui) {
     d.setDate(gridStart.getDate() + i);
     const iso = isoDate(d);
     const evs = byDate.get(iso) || [];
+    const hol = findHolidayForDate(iso, state.semesterConfig);
     cells.push({
       iso,
       dayNum: d.getDate(),
       inMonth: d.getMonth() === cursorMonth,
       isToday: iso === todayIso,
       isSelected: iso === selectedIso,
+      isHoliday: Boolean(hol),
       dots: evs.slice(0, 3).map((e) => getEventDotColor(e)),
     });
   }
@@ -88,6 +94,10 @@ export function renderCalendarView(state, ui) {
   const lastSyncStr = g.lastSync
     ? new Date(g.lastSync).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
+  const lastDriveStr = g.lastDriveSync
+    ? new Date(g.lastDriveSync).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  const sessionActive = hasActiveGoogleToken();
 
   return `
     <header class="page-header">
@@ -113,14 +123,16 @@ export function renderCalendarView(state, ui) {
             ${
               g.connected
                 ? `Verbunden mit ${esc(g.userEmail || 'Google Kalender')}`
-                : 'Google Kalender verknüpfen — Klausuren automatisch übernehmen'
+                : 'Google Kalender verknüpfen — Klausuren & Drive-Sync aktivieren'
             }
           </div>
           <div class="text-xs text-secondary">
             ${
               g.connected
-                ? `${(state.googleEvents || []).length} Google-Termine geladen · Sync um ${lastSyncStr || 'gerade eben'} · Klausuren werden automatisch erkannt.`
-                : 'Du musst deine Klausuren nicht neu eintippen: Nach dem Verbinden erkennt Studia alle Termine mit „Klausur“, „Prüfung“ oder „Testat“ automatisch.'
+                ? `${(state.googleEvents || []).length} Google-Termine · Kalender-Sync ${lastSyncStr || 'aktiv'}${
+                    lastDriveStr ? ` · Drive-Sync ${lastDriveStr}` : ''
+                  }${!sessionActive ? ' · Sitzung pausiert' : ''}`
+                : 'Verbinde dein Google-Konto für automatische Klausur-Erkennung, Abgaben-Erinnerungen und Pixel/iPad/PC-Sync via Google Drive.'
             }
           </div>
         </div>
@@ -129,11 +141,11 @@ export function renderCalendarView(state, ui) {
         ${
           g.connected
             ? `
-              <button class="btn btn-google btn-sm" data-action="sync-google-now">
-                ${ICONS.sync} Sync
+              <button class="btn btn-google btn-sm" data-action="${sessionActive ? 'sync-google-now' : 'refresh-google-session'}">
+                ${ICONS.sync} ${sessionActive ? 'Sync' : 'Sitzung erneuern'}
               </button>
               <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="settings">
-                Kalender wählen
+                Einstellungen
               </button>
             `
             : `
@@ -176,7 +188,7 @@ export function renderCalendarView(state, ui) {
             .map(
               (c) => `
             <button
-              class="cal-cell ${c.inMonth ? '' : 'other-month'} ${c.isToday ? 'is-today' : ''} ${c.isSelected ? 'selected' : ''}"
+              class="cal-cell ${c.inMonth ? '' : 'other-month'} ${c.isToday ? 'is-today' : ''} ${c.isSelected ? 'selected' : ''} ${c.isHoliday ? 'is-holiday' : ''}"
               data-action="select-cal-date"
               data-date="${c.iso}"
             >
@@ -200,6 +212,15 @@ export function renderCalendarView(state, ui) {
             ${ICONS.plus} Neu
           </button>
         </div>
+
+        ${
+          !selDayStatus.isLectureDay
+            ? `<div class="note-card mb-sm" style="background:var(--accent-ochre-soft); margin-bottom:12px;">
+                <div class="text-xs fw-700" style="color:var(--accent-ochre);">${esc(selDayStatus.label)}</div>
+                <div class="text-xs text-secondary">Vorlesungen und reguläre Semester-Abgaben werden an diesem Tag automatisch ausgeblendet.</div>
+              </div>`
+            : ''
+        }
 
         ${
           dayEvents.length === 0

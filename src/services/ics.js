@@ -1,5 +1,11 @@
-import { addMinutesToTime } from '../state/store.js';
-import { isoDate, parseISODate, uid } from '../data/defaults.js';
+import {
+  addDaysToISO,
+  addMinutesToTime,
+  isoDate,
+  parseISODate,
+  uid,
+} from '../data/defaults.js';
+import { getHolidayExclusionDates, normalizeSemesterConfig } from '../utils/semester.js';
 
 const ICS_DAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
@@ -111,6 +117,72 @@ export function exportTimetableToICS(timetable, weeksCount = 14) {
   downloadFile('studia-stundenplan.ics', lines.join('\r\n'));
 }
 
+/**
+ * Pure builder for recurring submission .ics with RRULE, UNTIL, holiday EXDATE, and 2 VALARMs.
+ */
+export function buildRecurringTasksICS(tasks, semesterConfig) {
+  const cfg = normalizeSemesterConfig(semesterConfig);
+  const nowStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const untilIso = addDaysToISO(cfg.lecturesEnd || '2027-01-22', 2);
+  const untilStamp = `${untilIso.replace(/-/g, '')}T235959Z`;
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Studia Uni PWA//DE',
+    'CALSCALE:GREGORIAN',
+    'X-WR-CALNAME:Studia Abgaben',
+  ];
+
+  for (const tk of (tasks || []).filter(
+    (t) => t.due && (t.recurrence === 'weekly' || t.recurrence === 'biweekly')
+  )) {
+    const dueTime = tk.dueTime && /^\d{2}:\d{2}$/.test(tk.dueTime) ? tk.dueTime : '23:59';
+    const startTime = addMinutesToTime(dueTime, -30);
+    const interval = tk.recurrence === 'biweekly' ? 2 : 1;
+    const exDates = getHolidayExclusionDates(tk.due, interval * 7, cfg);
+
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${tk.id}@studia.app`,
+      `DTSTAMP:${nowStamp}`,
+      `DTSTART:${toICSDateTime(tk.due, startTime)}`,
+      `DTEND:${toICSDateTime(tk.due, dueTime)}`,
+      `RRULE:FREQ=WEEKLY;INTERVAL=${interval};UNTIL=${untilStamp}`
+    );
+
+    if (exDates.length > 0) {
+      const exStr = exDates.map((d) => toICSDateTime(d, startTime)).join(',');
+      lines.push(`EXDATE:${exStr}`);
+    }
+
+    lines.push(
+      `SUMMARY:${escapeICS(`Abgabe: ${tk.title}`)}`,
+      `LOCATION:${escapeICS(tk.course || '')}`,
+      `DESCRIPTION:${escapeICS(tk.recurrenceLabel || 'Wiederkehrende Semester-Abgabe')}`,
+      'BEGIN:VALARM',
+      'TRIGGER:-P1D',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${escapeICS(`Morgen fällig: ${tk.title}`)}`,
+      'END:VALARM',
+      'BEGIN:VALARM',
+      'TRIGGER:-PT2H',
+      'ACTION:DISPLAY',
+      `DESCRIPTION:${escapeICS(`In 2 Stunden fällig: ${tk.title}`)}`,
+      'END:VALARM',
+      'END:VEVENT'
+    );
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+export function exportRecurringTasksToICS(tasks, semesterConfig) {
+  const content = buildRecurringTasksICS(tasks, semesterConfig);
+  downloadFile('studia-abgaben.ics', content);
+}
+
 export function exportSingleEventToICS({ title, date, start, end, location, notes }) {
   const nowStamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
   const startT = start && /^\d{2}:\d{2}$/.test(start) ? start : '09:00';
@@ -135,7 +207,6 @@ export function exportSingleEventToICS({ title, date, start, end, location, note
 }
 
 export function parseICS(icsText) {
-  // Unfold RFC 5545 folded lines
   const unfolded = icsText.replace(/\r\n[ \t]/g, '').replace(/\n[ \t]/g, '');
   const lines = unfolded.split(/\r?\n/);
 
@@ -190,7 +261,6 @@ export function parseICS(icsText) {
 }
 
 function parseICSDateVal(val) {
-  // Supports YYYYMMDD and YYYYMMDDTHHMMSS(Z)
   const m = val.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
   if (!m) return null;
   const [, y, mo, d, hh, mm, , isUtc] = m;

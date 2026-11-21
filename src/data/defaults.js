@@ -117,6 +117,42 @@ export function formatShortDateDE(iso) {
   return `${WEEKDAYS_SHORT[getMondayIndex(d)]}, ${d.getDate()}. ${MONTHS_DE[d.getMonth()].slice(0, 3)}`;
 }
 
+export function addMinutesToTime(hhmm, mins) {
+  const [h, m] = (hhmm || '09:00').split(':').map(Number);
+  const total = h * 60 + m + Number(mins || 0);
+  const wrapped = ((total % 1440) + 1440) % 1440;
+  const nh = Math.floor(wrapped / 60);
+  const nm = wrapped % 60;
+  return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`;
+}
+
+export function timeToMinutes(hhmm) {
+  const [h, m] = (hhmm || '08:00').split(':').map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Official HSD Fachbereich EI & WiWi dates for WS 2026/27
+ * (Source: ei.hs-duesseldorf.de/aktuelles/termine/semestertermine)
+ */
+export const DEFAULT_SEMESTER_CONFIG = {
+  name: 'WS 2026/27',
+  lecturesStart: '2026-10-05',
+  lecturesEnd: '2027-01-22',
+  examPeriodStart: '2027-01-25',
+  examPeriodEnd: '2027-02-27',
+  examRegStart: '2026-11-16',
+  examRegEnd: '2026-11-30',
+  holidays: [
+    {
+      id: 'hol_xmas',
+      label: 'Weihnachtsferien (vorlesungsfrei)',
+      start: '2026-12-23',
+      end: '2027-01-03',
+    },
+  ],
+};
+
 export function uid(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -258,7 +294,13 @@ export function createDefaultState() {
   const nextInfoTechSun = nextOccurrenceFromAnchor('2026-11-22', 14);
 
   return {
-    version: 3,
+    version: 4,
+    updatedAt: new Date().toISOString(),
+    studyGoalWeeklyMin: 600,
+    semesterConfig: {
+      ...DEFAULT_SEMESTER_CONFIG,
+      holidays: DEFAULT_SEMESTER_CONFIG.holidays.map((h) => ({ ...h })),
+    },
     profile: {
       university: 'Hochschule Düsseldorf (HSD)',
       degree: 'B.Eng. Wirtschaftsingenieurwesen Elektrotechnik',
@@ -271,6 +313,10 @@ export function createDefaultState() {
     google: {
       clientId: DEFAULT_GOOGLE_CLIENT_ID,
       readOnlyMode: false,
+      rememberLogin: true,
+      driveSyncEnabled: true,
+      driveFileId: null,
+      lastDriveSync: null,
       connected: false,
       userEmail: '',
       lastSync: null,

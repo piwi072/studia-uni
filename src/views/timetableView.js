@@ -3,13 +3,18 @@ import {
   COURSE_COLORS,
   WEEKDAYS_FULL,
   WEEKDAYS_SHORT,
+  formatDateDE,
   getISOWeek,
   getMondayIndex,
+  isoDate,
 } from '../data/defaults.js';
 import { timeToMinutes } from '../state/store.js';
 import { esc } from '../utils/html.js';
+import { getSemesterBannerInfo } from '../utils/semester.js';
 
 export function renderTimetableView(state, ui) {
+  const todayIso = isoDate();
+  const semInfo = getSemesterBannerInfo(todayIso, state.semesterConfig);
   const kw = getISOWeek();
   const currentParity = kw % 2 === 0 ? 'even' : 'odd';
   const todayMonIdx = getMondayIndex();
@@ -35,6 +40,7 @@ export function renderTimetableView(state, ui) {
   );
 
   const hasParitySpecific = (state.timetable || []).some((c) => c.weekParity !== 'all');
+  const hol = semInfo.config.holidays?.[0];
 
   return `
     <header class="page-header">
@@ -54,6 +60,21 @@ export function renderTimetableView(state, ui) {
         </button>
       </div>
     </header>
+
+    <div class="semester-strip mb-md ${!semInfo.status.isLectureDay ? 'is-break' : ''}">
+      <div class="text-xs text-secondary">
+        ${
+          !semInfo.status.isLectureDay
+            ? `<strong>${esc(semInfo.status.label)}:</strong> Reguläre Vorlesungen pausieren aktuell. Unten siehst du deinen normalen Wochenplan zur Übersicht.`
+            : `<strong>Vorlesungszeit ${esc(semInfo.config.name)}:</strong> bis ${formatDateDE(semInfo.config.lecturesEnd)} (<strong>noch ${semInfo.weeksLeft} Wochen</strong>)${
+                hol ? ` · Ferien: ${formatDateDE(hol.start)}–${formatDateDE(hol.end)}` : ''
+              }${
+                semInfo.config.examPeriodStart ? ` · Prüfungen ab ${formatDateDE(semInfo.config.examPeriodStart)}` : ''
+              }`
+        }
+      </div>
+      <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="settings">Zeiten anpassen</button>
+    </div>
 
     <div class="timetable-toolbar">
       ${

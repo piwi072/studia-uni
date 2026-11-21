@@ -1,13 +1,75 @@
 import {
   DEFAULT_EXAM_KEYWORDS,
   DEFAULT_GOOGLE_CLIENT_ID,
-  addDaysToISO,
+  addMinutesToTime,
   createDefaultModules,
   createDefaultState,
   isoDate,
+  timeToMinutes,
 } from '../data/defaults.js';
+import {
+  adjustTaskDueForHolidays,
+  expandRecurringTaskDates,
+  normalizeSemesterConfig,
+} from '../utils/semester.js';
+import { normalizeCard } from '../utils/spacedRepetition.js';
+
+export { addMinutesToTime, timeToMinutes };
 
 const STORAGE_KEY = 'studia_wie_state_v2';
+
+function mergeWithDefaults(parsed, { keepConnection = true } = {}) {
+  const fallback = createDefaultState();
+  const semesterConfig = normalizeSemesterConfig(parsed?.semesterConfig);
+  const todayIso = isoDate();
+
+  const mergedGoogle = {
+    ...fallback.google,
+    ...(parsed?.google || {}),
+    clientId: parsed?.google?.clientId || DEFAULT_GOOGLE_CLIENT_ID,
+    rememberLogin: parsed?.google?.rememberLogin !== false,
+    driveSyncEnabled: parsed?.google?.driveSyncEnabled !== false,
+    examKeywords: parsed?.google?.examKeywords || fallback.google.examKeywords,
+    promotedGoogleExamIds: parsed?.google?.promotedGoogleExamIds || [],
+    hiddenGoogleExamIds: parsed?.google?.hiddenGoogleExamIds || [],
+    examMetaByGoogleId: {
+      ...fallback.google.examMetaByGoogleId,
+      ...(parsed?.google?.examMetaByGoogleId || {}),
+    },
+  };
+  if (!keepConnection) {
+    mergedGoogle.connected = false;
+  }
+
+  const rawCards = Array.isArray(parsed?.flashcards) ? parsed.flashcards : fallback.flashcards;
+  const flashcards = rawCards.map((c) => normalizeCard(c, todayIso));
+
+  const rawTasks = Array.isArray(parsed?.tasks) ? parsed.tasks : fallback.tasks;
+  const tasks = rawTasks.map((t) => {
+    if (t.recurrence === 'weekly' || t.recurrence === 'biweekly') {
+      const step = t.recurrence === 'biweekly' ? 14 : 7;
+      return { ...t, due: adjustTaskDueForHolidays(t.due, step, semesterConfig) };
+    }
+    return t;
+  });
+
+  return {
+    ...fallback,
+    ...(parsed || {}),
+    version: 4,
+    updatedAt: parsed?.updatedAt || fallback.updatedAt,
+    studyGoalWeeklyMin: Math.max(30, Number(parsed?.studyGoalWeeklyMin || fallback.studyGoalWeeklyMin || 600)),
+    semesterConfig,
+    profile: { ...fallback.profile, ...(parsed?.profile || {}) },
+    google: mergedGoogle,
+    modules:
+      Array.isArray(parsed?.modules) && parsed.modules.length > 0
+        ? parsed.modules
+        : createDefaultModules(),
+    tasks,
+    flashcards,
+  };
+}
 
 class StudiaStore {
   constructor() {
@@ -17,39 +79,19 @@ class StudiaStore {
 
   load() {
     try {
+      if (typeof localStorage === 'undefined') return mergeWithDefaults(null);
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return createDefaultState();
+      if (!raw) return mergeWithDefaults(null);
       const parsed = JSON.parse(raw);
-      const fallback = createDefaultState();
-      const mergedGoogle = {
-        ...fallback.google,
-        ...(parsed.google || {}),
-        clientId: parsed.google?.clientId || DEFAULT_GOOGLE_CLIENT_ID,
-        examKeywords: parsed.google?.examKeywords || fallback.google.examKeywords,
-        promotedGoogleExamIds: parsed.google?.promotedGoogleExamIds || [],
-        hiddenGoogleExamIds: parsed.google?.hiddenGoogleExamIds || [],
-        examMetaByGoogleId: {
-          ...fallback.google.examMetaByGoogleId,
-          ...(parsed.google?.examMetaByGoogleId || {}),
-        },
-      };
-      return {
-        ...fallback,
-        ...parsed,
-        profile: { ...fallback.profile, ...(parsed.profile || {}) },
-        google: mergedGoogle,
-        modules:
-          Array.isArray(parsed.modules) && parsed.modules.length > 0
-            ? parsed.modules
-            : createDefaultModules(),
-      };
+      return mergeWithDefaults(parsed, { keepConnection: true });
     } catch {
-      return createDefaultState();
+      return mergeWithDefaults(null);
     }
   }
 
   save() {
     try {
+      if (typeof localStorage === 'undefined') return;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
     } catch (err) {
       console.warn('Speichern fehlgeschlagen:', err);
@@ -61,23 +103,98 @@ class StudiaStore {
     return () => this.listeners.delete(fn);
   }
 
-  notify() {
+  notify(meta = {}) {
     this.save();
-    this.listeners.forEach((fn) => fn(this.state));
+    this.listeners.forEach((fn) => fn(this.state, meta));
   }
 
-  update(mutator) {
+  update(mutator, { touchUpdatedAt = true, fromRemote = false } = {}) {
     mutator(this.state);
-    this.notify();
+    if (touchUpdatedAt && !fromRemote) {
+      this.state.updatedAt = new Date().toISOString();
+    }
+    this.notify({ touchUpdatedAt, fromRemote });
   }
 
   resetToDemo() {
     const prevClientId = this.state.google.clientId || DEFAULT_GOOGLE_CLIENT_ID;
     const prevTheme = this.state.theme;
-    this.state = createDefaultState();
+    const prevConnected = this.state.google.connected;
+    const prevEmail = this.state.google.userEmail;
+    const prevDriveFileId = this.state.google.driveFileId;
+    this.state = mergeWithDefaults(null);
     this.state.google.clientId = prevClientId;
+    this.state.google.connected = prevConnected;
+    this.state.google.userEmail = prevEmail;
+    this.state.google.driveFileId = prevDriveFileId;
     this.state.theme = prevTheme;
-    this.notify();
+    this.state.updatedAt = new Date().toISOString();
+    this.notify({ touchUpdatedAt: true, fromRemote: false });
+  }
+
+  /**
+   * Produces a portable JSON payload for Google Drive appDataFolder sync
+   * (omits volatile Google Calendar cache, session tokens, and device-only Gemini API key).
+   */
+  getSyncPayload() {
+    const s = this.state;
+    return {
+      version: 4,
+      updatedAt: s.updatedAt || new Date().toISOString(),
+      studyGoalWeeklyMin: s.studyGoalWeeklyMin,
+      semesterConfig: s.semesterConfig,
+      profile: s.profile,
+      theme: s.theme,
+      modules: s.modules,
+      timetable: s.timetable,
+      exams: s.exams,
+      calendarEvents: (s.calendarEvents || []).filter((e) => e.source !== 'google-demo'),
+      tasks: s.tasks,
+      grades: s.grades,
+      semesterPlan: s.semesterPlan,
+      flashcards: s.flashcards,
+      studySessions: s.studySessions,
+      notes: s.notes,
+      quickLinks: s.quickLinks,
+      googleMeta: {
+        examKeywords: s.google.examKeywords,
+        promotedGoogleExamIds: s.google.promotedGoogleExamIds,
+        hiddenGoogleExamIds: s.google.hiddenGoogleExamIds,
+        examMetaByGoogleId: s.google.examMetaByGoogleId,
+        selectedCalendarIds: s.google.selectedCalendarIds,
+        writeCalendarId: s.google.writeCalendarId,
+      },
+    };
+  }
+
+  /**
+   * Applies a remote payload loaded from Google Drive without breaking live OAuth state
+   * or triggering an auto-upload echo.
+   */
+  applyRemoteState(remote) {
+    if (!remote || typeof remote !== 'object' || !Array.isArray(remote.timetable)) {
+      throw new Error('Ungültige Studia-Cloud-Daten in Google Drive.');
+    }
+    const prevGoogle = this.state.google;
+    const prevGoogleEvents = this.state.googleEvents;
+    const demoEvents = (this.state.calendarEvents || []).filter((e) => e.source === 'google-demo');
+    const remoteEvents = Array.isArray(remote.calendarEvents) ? remote.calendarEvents : [];
+
+    const merged = mergeWithDefaults(
+      {
+        ...remote,
+        calendarEvents: [...demoEvents, ...remoteEvents.filter((e) => e.source !== 'google-demo')],
+        google: {
+          ...prevGoogle,
+          ...(remote.googleMeta || {}),
+        },
+      },
+      { keepConnection: true }
+    );
+    merged.googleEvents = prevGoogleEvents;
+    merged.updatedAt = remote.updatedAt || new Date().toISOString();
+    this.state = merged;
+    this.notify({ touchUpdatedAt: false, fromRemote: true });
   }
 
   exportJSON() {
@@ -89,23 +206,9 @@ class StudiaStore {
     if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.timetable)) {
       throw new Error('Ungültige Studia-Backup-Datei.');
     }
-    const fallback = createDefaultState();
-    this.state = {
-      ...fallback,
-      ...parsed,
-      profile: { ...fallback.profile, ...(parsed.profile || {}) },
-      google: {
-        ...fallback.google,
-        ...(parsed.google || {}),
-        clientId: parsed.google?.clientId || DEFAULT_GOOGLE_CLIENT_ID,
-        connected: false,
-      },
-      modules:
-        Array.isArray(parsed.modules) && parsed.modules.length > 0
-          ? parsed.modules
-          : createDefaultModules(),
-    };
-    this.notify();
+    this.state = mergeWithDefaults(parsed, { keepConnection: false });
+    this.state.updatedAt = new Date().toISOString();
+    this.notify({ touchUpdatedAt: true, fromRemote: false });
   }
 }
 
@@ -242,10 +345,9 @@ export function getAllCalendarEvents(state) {
 
   for (const tk of state.tasks || []) {
     if (!tk.due || (tk.recurrence === 'once' && tk.done)) continue;
-    const step = tk.recurrence === 'weekly' ? 7 : tk.recurrence === 'biweekly' ? 14 : 0;
-    const count = step > 0 ? 4 : 1;
-    for (let i = 0; i < count; i++) {
-      const occDate = i === 0 ? tk.due : addDaysToISO(tk.due, step * i);
+    const isRecurring = tk.recurrence === 'weekly' || tk.recurrence === 'biweekly';
+    const dates = expandRecurringTaskDates(tk, state.semesterConfig, 12);
+    dates.forEach((occDate, i) => {
       events.push({
         id: `task_${tk.id}_${i}`,
         taskId: tk.id,
@@ -256,29 +358,16 @@ export function getAllCalendarEvents(state) {
         location: tk.course || '',
         notes: tk.recurrenceLabel || '',
         source: 'task',
-        calendarName: step > 0 ? 'Wiederkehrende Abgabe' : 'Abgabe',
+        calendarName: isRecurring ? 'Wiederkehrende Abgabe' : 'Abgabe',
         color: 'ochre',
       });
-    }
+    });
   }
 
   return events.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     return (a.start || '').localeCompare(b.start || '');
   });
-}
-
-export function addMinutesToTime(hhmm, mins) {
-  const [h, m] = (hhmm || '09:00').split(':').map(Number);
-  const total = h * 60 + m + Number(mins || 0);
-  const nh = Math.floor(total / 60) % 24;
-  const nm = total % 60;
-  return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`;
-}
-
-export function timeToMinutes(hhmm) {
-  const [h, m] = (hhmm || '08:00').split(':').map(Number);
-  return h * 60 + m;
 }
 
 export function getTodayStudyMinutes(state) {

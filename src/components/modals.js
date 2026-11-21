@@ -7,8 +7,16 @@ import {
   addDays,
   isoDate,
 } from '../data/defaults.js';
+import {
+  GEMINI_MODELS,
+  getGeminiApiKey,
+  getGeminiModel,
+} from '../services/geminiTutor.js';
+import { getDriveSyncStatus } from '../services/googleDriveSync.js';
 import { formatSingleGradeDE, getUnifiedExams } from '../state/store.js';
+import { guessModuleIdFromText } from '../utils/flashcardParser.js';
 import { esc } from '../utils/html.js';
+import { normalizeSemesterConfig } from '../utils/semester.js';
 
 export function renderModal(state, modalState, ui = {}) {
   if (!modalState) return '';
@@ -285,8 +293,73 @@ export function renderModal(state, modalState, ui = {}) {
       <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Hinzufügen</button>
     `;
+  } else if (type === 'share-import') {
+    const shared = modalState.shared || {};
+    const combinedText = [shared.text || '', shared.url || ''].filter(Boolean).join('\n').trim();
+    const guessedModId = guessModuleIdFromText(
+      `${shared.title || ''} ${shared.text || ''} ${shared.url || ''}`,
+      state.modules || []
+    );
+    const hasUrl = Boolean(shared.url && /^https?:\/\//i.test(shared.url));
+    const defaultTarget =
+      hasUrl && shared.url.includes('notebooklm') && !shared.text
+        ? 'notebook-link'
+        : combinedText.includes('::') || /(?:^|\n)\s*(?:F|Frage)\s*:/i.test(combinedText)
+          ? 'flashcards'
+          : 'module-note';
+
+    title = 'Geteilten Inhalt übernehmen';
+    body = `
+      <form id="studia-modal-form" class="form-stack" data-modal-submit="share-import">
+        <p class="text-xs text-secondary">
+          Direkt über <strong>Teilen → Studia</strong> empfangen. Wähle aus, wo der Inhalt gespeichert werden soll:
+        </p>
+        <div class="form-row">
+          <div class="field">
+            <label for="sh-mod">Modul</label>
+            <select id="sh-mod" name="moduleId" class="select">
+              ${(state.modules || [])
+                .map(
+                  (m) =>
+                    `<option value="${esc(m.id)}" ${m.id === guessedModId ? 'selected' : ''}>${esc(m.short)}</option>`
+                )
+                .join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label for="sh-target">Speichern als</label>
+            <select id="sh-target" name="target" class="select">
+              <option value="module-note" ${defaultTarget === 'module-note' ? 'selected' : ''}>Modul-Info (Offline-Notiz)</option>
+              <option value="flashcards" ${defaultTarget === 'flashcards' ? 'selected' : ''}>Karteikarte(n)</option>
+              <option value="notebook-link" ${defaultTarget === 'notebook-link' ? 'selected' : ''}>NotebookLM- / Modul-Link</option>
+              <option value="task">Einmalige Aufgabe</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="sh-title">Titel / Frage</label>
+          <input id="sh-title" name="title" class="input" value="${esc(shared.title || 'Geteilte Info')}" required />
+        </div>
+        ${
+          hasUrl
+            ? `<div class="field">
+                <label for="sh-url">Geteilte URL</label>
+                <input id="sh-url" name="url" type="url" class="input mono" style="font-size:0.8rem;" value="${esc(shared.url)}" />
+              </div>`
+            : `<input type="hidden" name="url" value="" />`
+        }
+        <div class="field">
+          <label for="sh-content">Inhalt / Text</label>
+          <textarea id="sh-content" name="content" class="textarea" rows="6" required>${esc(combinedText || shared.title || '')}</textarea>
+        </div>
+      </form>
+    `;
+    footer = `
+      <button type="button" class="btn btn-ghost" data-action="close-modal">Verwerfen</button>
+      <button type="submit" form="studia-modal-form" class="btn btn-primary">Übernehmen</button>
+    `;
   } else if (type === 'settings') {
-    title = 'Google-Konto & Einstellungen';
+    title = 'Konto, Sync & Einstellungen';
     body = renderSettingsBody(state, ui);
     footer = `<button type="button" class="btn btn-primary" data-action="close-modal">Fertig</button>`;
   }
@@ -437,12 +510,29 @@ function renderSettingsBody(state, ui) {
   const g = state.google;
   const origin = window.location.origin;
   const fullRedirect = `${window.location.origin}${window.location.pathname}`;
+  const driveStatus = getDriveSyncStatus();
+  const lastDriveStr = g.lastDriveSync
+    ? new Date(g.lastDriveSync).toLocaleString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
+  const geminiKey = getGeminiApiKey();
+  const geminiModel = getGeminiModel();
+  const sem = normalizeSemesterConfig(state.semesterConfig);
+  const hol = sem.holidays?.[0] || {
+    label: 'Weihnachtsferien (vorlesungsfrei)',
+    start: '2026-12-23',
+    end: '2027-01-03',
+  };
 
   return `
     <div class="form-stack">
       <section>
         <h3 style="font-size:0.98rem; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-          ${ICONS.google} Google Kalender & Klausur-Erkennung
+          ${ICONS.google} Google Kalender &amp; Geräte-Sync (Drive)
         </h3>
         <div class="form-stack">
           <div class="field">
@@ -457,16 +547,26 @@ function renderSettingsBody(state, ui) {
           </div>
 
           <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
+            <input id="set-remember-toggle" type="checkbox" data-action="toggle-google-remember" ${g.rememberLogin !== false ? 'checked' : ''} />
+            <span>Anmeldung merken &amp; beim Öffnen automatisch synchronisieren</span>
+          </label>
+
+          <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
+            <input id="set-drive-toggle" type="checkbox" data-action="toggle-drive-sync" ${g.driveSyncEnabled !== false ? 'checked' : ''} />
+            <span>Pixel, iPad &amp; PC über versteckten Google Drive App-Ordner synchronisieren</span>
+          </label>
+
+          <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
             <input id="set-readonly-toggle" type="checkbox" data-action="toggle-google-readonly" ${g.readOnlyMode ? 'checked' : ''} />
             <span>Nur-Lese-Modus (falls nur <code>calendar.readonly</code> freigegeben wurde)</span>
           </label>
 
           <div class="flex-row">
             <button type="button" class="btn btn-google" data-action="connect-google">
-              ${ICONS.google} ${g.connected ? 'Konto wechseln / neu verbinden' : 'Mit Google-Konto anmelden'}
+              ${ICONS.google} ${g.connected ? 'Neu verbinden / Scope aktualisieren' : 'Mit Google-Konto anmelden'}
             </button>
             <button type="button" class="btn btn-secondary btn-sm" data-action="connect-google-redirect" title="Hilfreich falls Popups auf dem Pixel 8 oder iPad blockiert werden">
-              Ohne Popup anmelden
+              Ohne Popup
             </button>
             ${
               g.connected
@@ -475,6 +575,46 @@ function renderSettingsBody(state, ui) {
                 : ''
             }
           </div>
+
+          ${
+            g.connected
+              ? `<div class="note-card" style="background:var(--accent-primary-softer); border-color:var(--accent-primary-soft);">
+                  <div class="flex-between" style="flex-wrap:wrap;">
+                    <div>
+                      <div class="fw-700 text-xs" style="display:flex; align-items:center; gap:6px;">
+                        ${ICONS.cloud} Geräte-Sync über Google Drive
+                      </div>
+                      <div class="text-xs text-secondary">
+                        ${
+                          driveStatus.state === 'syncing'
+                            ? 'Synchronisiere gerade…'
+                            : lastDriveStr
+                              ? `Zuletzt synchronisiert: ${lastDriveStr}`
+                              : 'Speichert Abgaben, Karten, Notizen & Lernzeit privat in deinem Drive App-Ordner.'
+                        }
+                      </div>
+                    </div>
+                    <div class="flex-row" style="gap:5px;">
+                      <button type="button" class="btn btn-primary btn-sm" data-action="drive-sync-auto">${ICONS.sync} Sync</button>
+                      <button type="button" class="btn btn-secondary btn-sm" data-action="drive-sync-upload" title="Lokalen Stand in Google Drive hochladen">${ICONS.upload}</button>
+                      <button type="button" class="btn btn-secondary btn-sm" data-action="drive-sync-download" title="Stand aus Google Drive laden">${ICONS.download}</button>
+                    </div>
+                  </div>
+                  ${
+                    driveStatus.error
+                      ? `<div class="text-xs mt-sm" style="color:var(--status-danger);">
+                          ${esc(driveStatus.error)}
+                          ${
+                            driveStatus.needsDriveApiEnable
+                              ? ` <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=922128740496" target="_blank" rel="noopener noreferrer" style="text-decoration:underline; font-weight:700;">Google Drive API jetzt aktivieren ↗</a>`
+                              : ''
+                          }
+                        </div>`
+                      : ''
+                  }
+                </div>`
+              : ''
+          }
 
           ${
             ui.googleError
@@ -486,12 +626,11 @@ function renderSettingsBody(state, ui) {
           }
 
           <details class="guide-details" ${!g.connected ? 'open' : ''}>
-            <summary>Hilfe bei „Zugriff blockiert / Kein Zugriff“ trotz Testnutzer</summary>
+            <summary>Cloud-Setup-Checkliste (Kalender + Drive Sync)</summary>
             <ol>
-              <li><strong>Richtige E-Mail &amp; Projekt prüfen:</strong> Öffne in Google Cloud das Projekt <code>922128740496</code> → <strong>Google Auth Platform → Zielgruppe (Audience) → Testnutzer</strong>. Achtung: <code>@gmail.com</code> und <code>@googlemail.com</code> sind für Google zwei getrennte Adressen — trage genau die Mail ein, mit der du dich anmeldest, und klicke unten auf <strong>Speichern</strong>.</li>
-              <li><strong>Autorisierter JavaScript-Ursprung:</strong> Unter <em>Google Auth Platform → Clients → deine Client-ID</em> muss unter „Autorisierte JavaScript-Ursprünge“ exakt <code>${esc(origin)}</code> stehen (<strong>ohne</strong> <code>/studia-uni/</code> dahinter!). Für „Ohne Popup anmelden“ zusätzlich <code>${esc(fullRedirect)}</code> bei Weiterleitungs-URIs.</li>
-              <li><strong>Scopes freigeben:</strong> Prüfe unter <em>APIs &amp; Dienste → Aktivierte APIs</em>, dass die <strong>Google Calendar API</strong> aktiv ist.</li>
-              <li><strong>Warnbildschirm „App nicht überprüft“:</strong> Wenn Google warnt, tippe links unten auf <strong>„Erweitert“ → „Weiter zu … (unsicher)“</strong> — das ist bei privaten Test-Apps normal.</li>
+              <li><strong>Google Drive API aktivieren (für Pixel/iPad/PC-Sync):</strong> Öffne in Projekt <code>922128740496</code> die <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=922128740496" target="_blank" rel="noopener noreferrer">Google Drive API</a> und klicke auf <strong>Aktivieren</strong>. Danach in Studia einmal auf „Neu verbinden“ tippen.</li>
+              <li><strong>Autorisierter JavaScript-Ursprung:</strong> Exakt <code>${esc(origin)}</code>. Für „Ohne Popup“ zusätzlich <code>${esc(fullRedirect)}</code> bei Weiterleitungs-URIs.</li>
+              <li><strong>Google Calendar API:</strong> Aktiviert, damit Klausuren erkannt &amp; Abgabe-Serien mit Erinnerung angelegt werden.</li>
             </ol>
           </details>
 
@@ -529,7 +668,7 @@ function renderSettingsBody(state, ui) {
                   </div>
                 </div>
                 <div class="field">
-                  <label for="set-write-cal">Ziel-Kalender für neue Studia-Termine</label>
+                  <label for="set-write-cal">Ziel-Kalender für neue Studia-Termine &amp; Abgabe-Serien</label>
                   <select id="set-write-cal" class="select" data-action="set-write-google-cal">
                     ${g.calendars
                       .filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
@@ -541,6 +680,73 @@ function renderSettingsBody(state, ui) {
               : ''
           }
         </div>
+      </section>
+
+      <hr style="border:none; border-top:1px solid var(--border-subtle); margin:4px 0;" />
+
+      <section>
+        <h3 style="font-size:0.98rem; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+          ${ICONS.sparkles} KI-Tutor (Gemini API · nur lokal auf diesem Gerät)
+        </h3>
+        <form class="form-stack" data-form="save-gemini-settings">
+          <div class="field">
+            <label for="set-gemini-key">Gemini API-Key (kostenlos über Google AI Studio)</label>
+            <input
+              id="set-gemini-key"
+              name="apiKey"
+              type="password"
+              class="input mono"
+              style="font-size:0.82rem;"
+              value="${esc(geminiKey)}"
+              placeholder="AIzaSy…"
+              autocomplete="off"
+            />
+          </div>
+          <div class="field">
+            <label for="set-gemini-model">Modell</label>
+            <select id="set-gemini-model" name="model" class="select">
+              ${GEMINI_MODELS.map(
+                (m) => `<option value="${esc(m.id)}" ${m.id === geminiModel ? 'selected' : ''}>${esc(m.label)}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div class="flex-row">
+            <button type="submit" class="btn btn-secondary btn-sm">KI-Tutor speichern</button>
+            <a class="btn btn-ghost btn-sm" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+              Kostenlosen Key holen ${ICONS.external}
+            </a>
+            ${
+              geminiKey
+                ? `<button type="button" class="btn btn-danger-soft btn-sm" data-action="clear-gemini-key">Key entfernen</button>`
+                : ''
+            }
+          </div>
+        </form>
+      </section>
+
+      <hr style="border:none; border-top:1px solid var(--border-subtle); margin:4px 0;" />
+
+      <section>
+        <h3 style="font-size:0.98rem; margin-bottom:10px;">HSD-Semesterzeiten &amp; Ferien</h3>
+        <form class="form-stack" data-form="semester-config">
+          <div class="form-row">
+            <div class="field"><label for="sem-start">Vorlesungsbeginn</label><input id="sem-start" name="lecturesStart" type="date" class="input mono" value="${esc(sem.lecturesStart)}" required /></div>
+            <div class="field"><label for="sem-end">Vorlesungsende</label><input id="sem-end" name="lecturesEnd" type="date" class="input mono" value="${esc(sem.lecturesEnd)}" required /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label for="hol-start">Ferien Beginn</label><input id="hol-start" name="holidayStart" type="date" class="input mono" value="${esc(hol.start)}" /></div>
+            <div class="field"><label for="hol-end">Ferien Ende</label><input id="hol-end" name="holidayEnd" type="date" class="input mono" value="${esc(hol.end)}" /></div>
+          </div>
+          <div class="field"><label for="hol-label">Ferien-Bezeichnung</label><input id="hol-label" name="holidayLabel" class="input" value="${esc(hol.label)}" /></div>
+          <div class="form-row">
+            <div class="field"><label for="ex-start">Prüfungszeitraum ab</label><input id="ex-start" name="examPeriodStart" type="date" class="input mono" value="${esc(sem.examPeriodStart || '')}" /></div>
+            <div class="field"><label for="ex-end">Prüfungszeitraum bis</label><input id="ex-end" name="examPeriodEnd" type="date" class="input mono" value="${esc(sem.examPeriodEnd || '')}" /></div>
+          </div>
+          <div class="flex-row">
+            <button type="submit" class="btn btn-secondary btn-sm">Semesterzeiten speichern</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-action="reset-semester-hsd">HSD WS 26/27 Standard</button>
+          </div>
+        </form>
       </section>
 
       <hr style="border:none; border-top:1px solid var(--border-subtle); margin:4px 0;" />

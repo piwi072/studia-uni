@@ -1,4 +1,4 @@
-const CACHE_NAME = 'studia-pwa-v2';
+const CACHE_NAME = 'studia-pwa-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -31,7 +31,7 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Never cache Google OAuth / Calendar API requests
+  // Never cache Google OAuth, Calendar API, Drive API, or Gemini API requests
   if (
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('accounts.google.com')
@@ -39,14 +39,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Only cache same-origin & font resources
   if (url.origin === self.location.origin) {
     if (request.mode === 'navigate') {
+      const hasShareParams =
+        url.searchParams.has('share_title') ||
+        url.searchParams.has('share_text') ||
+        url.searchParams.has('share_url');
       event.respondWith(
         fetch(request)
           .then((response) => {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            if (!hasShareParams && response && response.status === 200) {
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
+            }
             return response;
           })
           .catch(() => caches.match('./index.html'))
