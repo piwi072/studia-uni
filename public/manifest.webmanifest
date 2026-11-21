@@ -1,0 +1,64 @@
+{
+  "name": "Studia — Dein Uni-Begleiter",
+  "short_name": "Studia",
+  "description": "Stundenplan, Google Kalender, Klausuren-Lernplan, Übungsblatt-Zulassung, Bib-Fokus-Timer & ECTS-Notenrechner für dein Studium.",
+  "lang": "de-DE",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait-primary",
+  "background_color": "#F6F4EF",
+  "theme_color": "#2D6A4F",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Stundenplan",
+      "short_name": "Plan",
+      "description": "Wöchentlichen Stundenplan öffnen",
+      "url": "./?tab=timetable",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Klausuren & Lernplan",
+      "short_name": "Klausuren",
+      "description": "Anstehende Prüfungen und Lernfortschritt prüfen",
+      "url": "./?tab=exams",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Bib-Fokus-Timer",
+      "short_name": "Fokus",
+      "description": "Direkt eine Lernsession starten",
+      "url": "./?tab=toolkit&sub=focus",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Google Kalender",
+      "short_name": "Kalender",
+      "description": "Monatskalender und Google-Termine anzeigen",
+      "url": "./?tab=calendar",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}
