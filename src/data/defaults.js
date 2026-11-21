@@ -803,6 +803,12 @@ export function createDefaultState() {
         url: 'https://notebooklm.google.com/',
       },
       {
+        id: 'ql_gemini_neon',
+        label: 'Gemini Pro (Neon)',
+        sub: 'Direkt mit Gemini 4 Neon lernen',
+        url: 'https://gemini.google.com/app',
+      },
+      {
         id: 'ql_gcal',
         label: 'Google Kalender',
         sub: 'Alle Termine & Klausuren öffnen',

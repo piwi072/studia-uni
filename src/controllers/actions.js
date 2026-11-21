@@ -6,7 +6,12 @@ import {
   uid,
 } from '../data/defaults.js';
 import { focusTimer } from '../services/focusTimer.js';
-import { setGeminiApiKey } from '../services/geminiTutor.js';
+import {
+  buildGeminiAppHandoffPrompt,
+  setGeminiApiKey,
+  setGeminiModel,
+  setGeminiThinkingLevel,
+} from '../services/geminiTutor.js';
 import {
   clearPersistedSession,
   connectGoogleAccount,
@@ -250,9 +255,39 @@ export function createActionHandlers({ ui, render, showToast }) {
       showToast(`Probefrage als Karteikarte für ${mod.short} gespeichert!`);
       return;
     }
+    if (action === 'tutor-open-gemini-app') {
+      const modId = actionEl.dataset.modId;
+      const mode = actionEl.dataset.mode || ui.tutorMode || 'cards';
+      const mod = (store.state.modules || []).find((m) => m.id === modId) || store.state.modules?.[0];
+      if (!mod) return;
+      const promptInput = document.getElementById('tutor-prompt');
+      const customText = promptInput ? promptInput.value : '';
+      const handoff = buildGeminiAppHandoffPrompt(mod, mode, customText);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(handoff);
+          showToast('Prompt kopiert! Einfach in Gemini Pro (Neon) einfügen.');
+        } else {
+          showToast('Gemini Pro öffnet sich — kopiere deinen Prompt bei Bedarf manuell.');
+        }
+      } catch {
+        showToast('Gemini Pro öffnet sich…');
+      }
+      window.open('https://gemini.google.com/app', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (action === 'tutor-switch-hydrogen') {
+      setGeminiModel('gemini-4-hydrogen');
+      ui.tutorError = '';
+      ui.tutorCanFallbackHydrogen = false;
+      showToast('Auf Gemini 4 Hydrogen (Free API) umgestellt.');
+      render();
+      return;
+    }
     if (action === 'clear-gemini-key') {
       setGeminiApiKey('');
       ui.tutorError = '';
+      ui.tutorCanFallbackHydrogen = false;
       showToast('Gemini API-Key von diesem Gerät entfernt.');
       render();
       return;
@@ -858,6 +893,20 @@ export function createActionHandlers({ ui, render, showToast }) {
     }
 
     const action = target.dataset.action;
+    if (action === 'change-gemini-model') {
+      setGeminiModel(target.value);
+      ui.tutorError = '';
+      ui.tutorCanFallbackHydrogen = false;
+      showToast(`Modell gewechselt: ${target.value}`);
+      render();
+      return;
+    }
+    if (action === 'change-gemini-thinking') {
+      setGeminiThinkingLevel(target.value);
+      showToast(`Denktiefe: ${target.value}`);
+      render();
+      return;
+    }
     if (action === 'focus-subject') {
       focusTimer.setSubject(target.value);
       return;

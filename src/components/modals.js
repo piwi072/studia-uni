@@ -9,8 +9,10 @@ import {
 } from '../data/defaults.js';
 import {
   GEMINI_MODELS,
+  GEMINI_THINKING_LEVELS,
   getGeminiApiKey,
   getGeminiModel,
+  getGeminiThinkingLevel,
 } from '../services/geminiTutor.js';
 import { getDriveSyncStatus } from '../services/googleDriveSync.js';
 import { formatSingleGradeDE, getUnifiedExams } from '../state/store.js';
@@ -686,11 +688,11 @@ function renderSettingsBody(state, ui) {
 
       <section>
         <h3 style="font-size:0.98rem; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-          ${ICONS.sparkles} KI-Tutor (Gemini API · nur lokal auf diesem Gerät)
+          ${ICONS.sparkles} KI-Tutor (Gemini 4 Neon &amp; Hydrogen · nur lokal)
         </h3>
         <form class="form-stack" data-form="save-gemini-settings">
           <div class="field">
-            <label for="set-gemini-key">Gemini API-Key (kostenlos über Google AI Studio)</label>
+            <label for="set-gemini-key">Gemini API-Key (Google AI Studio)</label>
             <input
               id="set-gemini-key"
               name="apiKey"
@@ -702,18 +704,31 @@ function renderSettingsBody(state, ui) {
               autocomplete="off"
             />
           </div>
-          <div class="field">
-            <label for="set-gemini-model">Modell</label>
-            <select id="set-gemini-model" name="model" class="select">
-              ${GEMINI_MODELS.map(
-                (m) => `<option value="${esc(m.id)}" ${m.id === geminiModel ? 'selected' : ''}>${esc(m.label)}</option>`
-              ).join('')}
-            </select>
+          <div class="form-row">
+            <div class="field">
+              <label for="set-gemini-model">Standard-Modell</label>
+              <select id="set-gemini-model" name="model" class="select">
+                ${GEMINI_MODELS.map(
+                  (m) => `<option value="${esc(m.id)}" ${m.id === geminiModel ? 'selected' : ''}>${esc(m.label)}</option>`
+                ).join('')}
+              </select>
+            </div>
+            <div class="field">
+              <label for="set-gemini-thinking">Denktiefe (Gemini 4)</label>
+              <select id="set-gemini-thinking" name="thinkingLevel" class="select">
+                ${GEMINI_THINKING_LEVELS.map(
+                  (tl) => `<option value="${esc(tl.id)}" ${tl.id === getGeminiThinkingLevel() ? 'selected' : ''}>${esc(tl.label)}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="text-xs text-secondary">
+            <strong>Tipp für Google AI Pro:</strong> In Google AI Studio kannst du deine monatlichen Pro-API-Credits einlösen, um <code>gemini-4-neon</code> direkt per API zu nutzen — oder im Modul mit 1 Klick <strong>„In Gemini Pro (Neon) öffnen“</strong> wählen (ganz ohne API-Kosten).
           </div>
           <div class="flex-row">
             <button type="submit" class="btn btn-secondary btn-sm">KI-Tutor speichern</button>
             <a class="btn btn-ghost btn-sm" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-              Kostenlosen Key holen ${ICONS.external}
+              AI Studio Key &amp; Pro-Credits ${ICONS.external}
             </a>
             ${
               geminiKey

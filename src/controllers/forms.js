@@ -5,6 +5,7 @@ import {
   generateTutorFlashcards,
   setGeminiApiKey,
   setGeminiModel,
+  setGeminiThinkingLevel,
 } from '../services/geminiTutor.js';
 import { pushEventToGoogle } from '../services/googleCalendar.js';
 import { exportSingleEventToICS } from '../services/ics.js';
@@ -46,6 +47,7 @@ export function createFormHandler({ ui, render, showToast }) {
       if (!apiKey) return;
       setGeminiApiKey(apiKey);
       ui.tutorError = '';
+      ui.tutorCanFallbackHydrogen = false;
       showToast('Gemini API-Key lokal gespeichert! Du kannst den KI-Tutor jetzt nutzen.');
       render();
       return;
@@ -53,11 +55,14 @@ export function createFormHandler({ ui, render, showToast }) {
 
     if (form.dataset.form === 'save-gemini-settings') {
       const apiKey = String(fd.get('apiKey') || '').trim();
-      const model = String(fd.get('model') || 'gemini-4-hydrogen');
+      const model = String(fd.get('model') || 'gemini-4-neon');
+      const thinkingLevel = String(fd.get('thinkingLevel') || 'medium');
       setGeminiApiKey(apiKey);
       setGeminiModel(model);
+      setGeminiThinkingLevel(thinkingLevel);
       ui.tutorError = '';
-      showToast(`KI-Tutor Einstellungen gespeichert (${model}).`);
+      ui.tutorCanFallbackHydrogen = false;
+      showToast(`KI-Tutor gespeichert (${model} · ${thinkingLevel}).`);
       render();
       return;
     }
@@ -71,6 +76,7 @@ export function createFormHandler({ ui, render, showToast }) {
 
       ui.tutorLoading = true;
       ui.tutorError = '';
+      ui.tutorCanFallbackHydrogen = false;
       render();
 
       try {
@@ -94,6 +100,7 @@ export function createFormHandler({ ui, render, showToast }) {
         }
       } catch (err) {
         ui.tutorError = err.message || 'KI-Tutor Anfrage fehlgeschlagen.';
+        ui.tutorCanFallbackHydrogen = Boolean(err.canFallbackToHydrogen);
       } finally {
         ui.tutorLoading = false;
         render();

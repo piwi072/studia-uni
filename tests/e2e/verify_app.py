@@ -66,8 +66,16 @@ def run_tests():
             # Block external GIS / font network waits to keep tests deterministic
             page.route("https://accounts.google.com/**", lambda route: route.fulfill(status=200, content_type="application/javascript", body=""))
 
-            # Mock Gemini API response for KI-Tutor E2E test
+            # Mock Gemini API response and verify gemini-4-neon + thinkingLevel request
+            gemini_requests = []
+
             def handle_gemini(route):
+                gemini_requests.append(
+                    {
+                        "url": route.request.url,
+                        "body": route.request.post_data_json,
+                    }
+                )
                 payload = {
                     "candidates": [
                         {
@@ -126,7 +134,7 @@ def run_tests():
             assert "Weihnachtsferien" in cal_agenda, "Holiday notice missing on Dec 25"
             assert "Grundlagen der Elektrotechnik I" not in cal_agenda, "Lecture should be hidden on Christmas holiday"
 
-            # Modules view: 5-box Leitner + Gemini KI-Tutor
+            # Modules view: 5-box Leitner + Gemini 4 Neon KI-Tutor
             page.click('.rail-nav-btn[data-nav="toolkit"]')
             page.wait_for_selector(".module-pill-grid")
             assert "Heute fällig (3)" in page.inner_text("body"), "GET I should start with 3 due cards"
@@ -134,13 +142,20 @@ def run_tests():
             assert "Heute fällig (2)" in page.inner_text("body"), "Due count should decrement to 2 after good rating"
             assert "F2: 1" in page.inner_text(".leitner-strip"), "Card should advance to Leitner box F2"
 
-            # Test Gemini KI-Tutor inline key setup + card generation + accept
+            # Verify Gemini 4 Neon is default and Gemini Pro App handoff button exists even before key
+            assert page.locator('[data-action="change-gemini-model"]').input_value() == "gemini-4-neon"
+            assert "In Gemini Pro (Neon) öffnen" in page.inner_text("body")
+            page.select_option('[data-action="change-gemini-thinking"]', "high")
+
+            # Test Gemini 4 Neon API key setup + card generation + accept
             page.fill('[data-form="save-gemini-key"] input[name="apiKey"]', "AIzaSyTestLocalKey123456789")
             page.click('[data-form="save-gemini-key"] button[type="submit"]')
-            page.wait_for_selector('[data-form="tutor-run"]')
+            page.wait_for_selector('[data-form="tutor-run"] button[type="submit"]')
             page.fill("#tutor-prompt", "Grundlagen Gleichstrom")
             page.click('[data-form="tutor-run"] button[type="submit"]')
             page.wait_for_selector('[data-action="tutor-accept-cards"]')
+            assert len(gemini_requests) == 1 and "models/gemini-4-neon:generateContent" in gemini_requests[0]["url"]
+            assert gemini_requests[0]["body"]["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "high"
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_modules_tutor.png"), full_page=True)
             page.click('[data-action="tutor-accept-cards"]')
             assert "Heute fällig (4)" in page.inner_text("body"), "2 generated cards should be added to GET I due queue"
@@ -162,13 +177,13 @@ def run_tests():
             page.click('[data-action="log-manual-study"][data-minutes="15"]')
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_focus_stats.png"), full_page=True)
 
-            # Settings modal: Drive sync, Remember login, Gemini Tutor, HSD semester config
+            # Settings modal: Drive sync, Remember login, Gemini 4 Neon, HSD semester config
             page.click('.rail-footer [data-action="open-modal"][data-modal="settings"]')
             page.wait_for_selector(".modal-sheet")
             settings_text = page.inner_text(".modal-sheet")
             assert "Google Drive App-Ordner" in settings_text, "Missing Drive sync option in settings"
             assert "Anmeldung merken" in settings_text, "Missing remember login option in settings"
-            assert "KI-Tutor (Gemini API" in settings_text, "Missing Gemini settings section"
+            assert "Gemini 4 Neon" in settings_text, "Missing Gemini 4 Neon section in settings"
             assert "HSD-Semesterzeiten" in settings_text, "Missing Semester config section"
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_settings.png"), full_page=True)
             page.click('[data-action="close-modal"]')

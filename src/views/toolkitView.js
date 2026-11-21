@@ -7,7 +7,13 @@ import {
   isoDate,
 } from '../data/defaults.js';
 import { FOCUS_PRESETS, focusTimer, formatMMSS } from '../services/focusTimer.js';
-import { GEMINI_MODELS, getGeminiModel, hasGeminiKey } from '../services/geminiTutor.js';
+import {
+  GEMINI_MODELS,
+  GEMINI_THINKING_LEVELS,
+  getGeminiModel,
+  getGeminiThinkingLevel,
+  hasGeminiKey,
+} from '../services/geminiTutor.js';
 import {
   computeGpaStats,
   formatGradeDE,
@@ -402,40 +408,156 @@ function renderGeminiTutorCard(mod, ui) {
   const keyConfigured = hasGeminiKey();
   const activeModel = getGeminiModel();
   const modelMeta = GEMINI_MODELS.find((m) => m.id === activeModel) || GEMINI_MODELS[0];
+  const thinkingLevel = getGeminiThinkingLevel();
   const mode = ui.tutorMode || 'cards'; // 'cards' | 'explain' | 'exam'
   const loading = Boolean(ui.tutorLoading);
   const error = ui.tutorError || '';
   const result = ui.tutorResultByModule?.[mod.id] || null;
   const noteCount = (mod.notebookNotes || []).length;
 
+  const submitLabel =
+    mode === 'cards'
+      ? loading
+        ? `${modelMeta.short} denkt nach…`
+        : `6 Karten mit ${modelMeta.short}`
+      : mode === 'explain'
+        ? loading
+          ? 'Erklärung wird erstellt…'
+          : `Mit ${modelMeta.short} erklären`
+        : loading
+          ? 'Fragen werden erstellt…'
+          : `3 Probefragen mit ${modelMeta.short}`;
+
   return `
-    <section class="card tutor-card" aria-label="KI-Tutor mit Gemini">
-      <div class="section-head" style="margin-bottom:12px;">
+    <section class="card tutor-card" aria-label="KI-Tutor mit Gemini 4 Neon">
+      <div class="section-head" style="margin-bottom:12px; flex-wrap:wrap; gap:10px;">
         <div>
           <div class="flex-row" style="gap:7px;">
             <h3 class="section-title" style="display:flex; align-items:center; gap:7px;">
               ${ICONS.sparkles} KI-Tutor · ${esc(mod.short)}
             </h3>
-            <span class="badge badge-sage mono">${esc(modelMeta.id)}</span>
+            <span class="badge ${modelMeta.id === 'gemini-4-neon' ? 'badge-terracotta' : 'badge-sage'} mono">${esc(modelMeta.short)}</span>
           </div>
           <div class="text-xs text-muted">
-            Erzeugt Karteikarten aus deinen Notizen, erklärt Übungsaufgaben Schritt für Schritt &amp; erstellt Klausur-Probefragen
+            Direkt per API (Gemini 4 Neon / Hydrogen) oder per 1-Klick-Prompt in deiner <strong>Gemini Pro App</strong>
           </div>
         </div>
-        <button class="btn btn-ghost btn-sm" data-action="open-modal" data-modal="settings">
-          ${ICONS.settings} API-Key &amp; Modell
+
+        <div class="flex-row" style="gap:6px;">
+          <select
+            class="select mono"
+            style="width:auto; min-height:34px; padding:4px 10px; font-size:0.78rem;"
+            data-action="change-gemini-model"
+            aria-label="Gemini-Modell wählen"
+          >
+            ${GEMINI_MODELS.map(
+              (m) => `<option value="${esc(m.id)}" ${m.id === activeModel ? 'selected' : ''}>${esc(m.short)}${m.isPro ? ' (Pro)' : ' (Free)'}</option>`
+            ).join('')}
+          </select>
+          ${
+            modelMeta.supportsThinkingLevel
+              ? `<select
+                  class="select mono"
+                  style="width:auto; min-height:34px; padding:4px 10px; font-size:0.78rem;"
+                  data-action="change-gemini-thinking"
+                  aria-label="Denktiefe wählen"
+                  title="Thinking-Level für Gemini 4 Neon / Hydrogen"
+                >
+                  ${GEMINI_THINKING_LEVELS.map(
+                    (tl) => `<option value="${esc(tl.id)}" ${tl.id === thinkingLevel ? 'selected' : ''}>Denktiefe: ${esc(tl.id)}</option>`
+                  ).join('')}
+                </select>`
+              : ''
+          }
+          <button class="btn btn-ghost btn-sm" data-action="open-modal" data-modal="settings">
+            ${ICONS.settings} Key
+          </button>
+        </div>
+      </div>
+
+      <div class="segmented-bar" role="tablist" aria-label="KI-Tutor Modus" style="margin-bottom:12px;">
+        <button class="segment-btn ${mode === 'cards' ? 'active' : ''}" data-action="set-tutor-mode" data-value="cards">
+          Karten
+        </button>
+        <button class="segment-btn ${mode === 'explain' ? 'active' : ''}" data-action="set-tutor-mode" data-value="explain">
+          Erklären
+        </button>
+        <button class="segment-btn ${mode === 'exam' ? 'active' : ''}" data-action="set-tutor-mode" data-value="exam">
+          Probefragen
         </button>
       </div>
+
+      <form class="form-stack" data-form="tutor-run" data-mod-id="${esc(mod.id)}" data-mode="${esc(mode)}">
+        ${
+          mode === 'cards'
+            ? `
+              <div class="field">
+                <label for="tutor-prompt">Thema (optional — sonst werden deine ${noteCount} Modul-Notizen ausgewertet)</label>
+                <input
+                  id="tutor-prompt"
+                  name="prompt"
+                  class="input"
+                  placeholder="z. B. Spannungsteiler &amp; Kirchhoff oder leer lassen für Modul-Notizen…"
+                />
+              </div>
+            `
+            : mode === 'explain'
+              ? `
+                <div class="field">
+                  <label for="tutor-prompt">Übungsaufgabe oder Konzept aus ${esc(mod.short)}</label>
+                  <textarea
+                    id="tutor-prompt"
+                    name="prompt"
+                    class="textarea"
+                    rows="3"
+                    placeholder="Füge deine Mathe-I-Aufgabe, GET-Schaltung oder BWL-Rechnung ein…"
+                    required
+                  ></textarea>
+                </div>
+              `
+              : `
+                <div class="field">
+                  <label for="tutor-prompt">Schwerpunkt für die Klausur-Simulation (optional)</label>
+                  <input
+                    id="tutor-prompt"
+                    name="prompt"
+                    class="input"
+                    placeholder="z. B. Komplexe Zahlen, Zweierkomplement, Break-Even…"
+                  />
+                </div>
+              `
+        }
+
+        <div class="flex-row" style="gap:8px;">
+          ${
+            keyConfigured
+              ? `<button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
+                  ${ICONS.sparkles} ${esc(submitLabel)}
+                </button>`
+              : ''
+          }
+          <button
+            type="button"
+            class="btn ${keyConfigured ? 'btn-secondary' : 'btn-primary'} btn-sm"
+            data-action="tutor-open-gemini-app"
+            data-mod-id="${esc(mod.id)}"
+            data-mode="${esc(mode)}"
+            title="Kopiert den fertigen Modul-Prompt in die Zwischenablage und öffnet die Gemini Pro App (mit Gemini 4 Neon)"
+          >
+            In Gemini Pro (Neon) öffnen ${ICONS.external}
+          </button>
+        </div>
+      </form>
 
       ${
         !keyConfigured
           ? `
-            <div class="tutor-setup-box">
-              <div class="text-sm fw-700">Kostenlosen Gemini API-Key hinterlegen (bleibt nur auf diesem Gerät)</div>
+            <div class="tutor-setup-box mt-md">
+              <div class="text-xs fw-700">Direkt in Studia generieren (optional mit deinem AI-Studio API-Key)</div>
               <div class="text-xs text-secondary mt-sm">
-                Hole dir in 30 Sekunden einen kostenlosen Key bei <strong>Google AI Studio</strong> (Free Tier für Gemini 4 Hydrogen &amp; 3.5 Flash-Lite). Der Key wird niemals in Backups oder Google Drive hochgeladen.
+                Mit <strong>Google AI Pro</strong> kannst du in Google AI Studio deine monatlichen API-Credits für <strong>Gemini 4 Neon</strong> aktivieren — oder <strong>Gemini 4 Hydrogen</strong> komplett kostenlos nutzen. Der Key bleibt nur auf diesem Gerät.
               </div>
-              <form class="inline-add-row mt-md" data-form="save-gemini-key">
+              <form class="inline-add-row mt-sm" data-form="save-gemini-key">
                 <input
                   type="password"
                   name="apiKey"
@@ -452,93 +574,36 @@ function renderGeminiTutorCard(mod, ui) {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Key holen ${ICONS.external}
+                  AI Studio Key ${ICONS.external}
                 </a>
               </form>
             </div>
           `
-          : `
-            <div class="segmented-bar" role="tablist" aria-label="KI-Tutor Modus" style="margin-bottom:12px;">
-              <button class="segment-btn ${mode === 'cards' ? 'active' : ''}" data-action="set-tutor-mode" data-value="cards">
-                Karten erzeugen
-              </button>
-              <button class="segment-btn ${mode === 'explain' ? 'active' : ''}" data-action="set-tutor-mode" data-value="explain">
-                Aufgabe erklären
-              </button>
-              <button class="segment-btn ${mode === 'exam' ? 'active' : ''}" data-action="set-tutor-mode" data-value="exam">
-                Klausur-Probefragen
-              </button>
-            </div>
-
-            <form class="form-stack" data-form="tutor-run" data-mod-id="${esc(mod.id)}" data-mode="${esc(mode)}">
-              ${
-                mode === 'cards'
-                  ? `
-                    <div class="field">
-                      <label for="tutor-prompt">Thema (optional — sonst werden deine ${noteCount} Modul-Notizen ausgewertet)</label>
-                      <input
-                        id="tutor-prompt"
-                        name="prompt"
-                        class="input"
-                        placeholder="z. B. Spannungsteiler &amp; Kirchhoff oder leer lassen für Modul-Notizen…"
-                      />
-                    </div>
-                    <div class="flex-row">
-                      <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
-                        ${ICONS.sparkles} ${loading ? 'Gemini denkt nach…' : '6 Karteikarten generieren'}
-                      </button>
-                    </div>
-                  `
-                  : mode === 'explain'
-                    ? `
-                      <div class="field">
-                        <label for="tutor-prompt">Übungsaufgabe oder Konzept aus ${esc(mod.short)}</label>
-                        <textarea
-                          id="tutor-prompt"
-                          name="prompt"
-                          class="textarea"
-                          rows="3"
-                          placeholder="Füge deine Mathe-I-Aufgabe, GET-Schaltung oder BWL-Rechnung ein…"
-                          required
-                        ></textarea>
-                      </div>
-                      <div class="flex-row">
-                        <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
-                          ${ICONS.sparkles} ${loading ? 'Erklärung wird erstellt…' : 'Schritt für Schritt erklären'}
-                        </button>
-                      </div>
-                    `
-                    : `
-                      <div class="field">
-                        <label for="tutor-prompt">Schwerpunkt für die Klausur-Simulation (optional)</label>
-                        <input
-                          id="tutor-prompt"
-                          name="prompt"
-                          class="input"
-                          placeholder="z. B. Komplexe Zahlen, Zweierkomplement, Break-Even…"
-                        />
-                      </div>
-                      <div class="flex-row">
-                        <button type="submit" class="btn btn-primary btn-sm" ${loading ? 'disabled' : ''}>
-                          ${ICONS.sparkles} ${loading ? 'Fragen werden erstellt…' : '3 Klausur-Probefragen erstellen'}
-                        </button>
-                      </div>
-                    `
-              }
-            </form>
-
-            ${
-              error
-                ? `<div class="note-card mt-md" style="background:var(--status-danger-soft); color:var(--status-danger);">
-                    <div class="text-xs fw-700">KI-Tutor Hinweis</div>
-                    <div class="text-xs">${esc(error)}</div>
-                  </div>`
-                : ''
-            }
-
-            ${renderTutorResult(mod, result)}
-          `
+          : ''
       }
+
+      ${
+        error
+          ? `<div class="note-card mt-md" style="background:var(--status-danger-soft); color:var(--status-danger);">
+              <div class="text-xs fw-700">KI-Tutor Hinweis</div>
+              <div class="text-xs">${esc(error)}</div>
+              ${
+                ui.tutorCanFallbackHydrogen
+                  ? `<div class="flex-row mt-sm">
+                      <button type="button" class="btn btn-secondary btn-sm" data-action="tutor-switch-hydrogen">
+                        Auf Gemini 4 Hydrogen (Free) wechseln
+                      </button>
+                      <button type="button" class="btn btn-soft btn-sm" data-action="tutor-open-gemini-app" data-mod-id="${esc(mod.id)}" data-mode="${esc(mode)}">
+                        In Gemini Pro App öffnen ${ICONS.external}
+                      </button>
+                    </div>`
+                  : ''
+              }
+            </div>`
+          : ''
+      }
+
+      ${renderTutorResult(mod, result)}
     </section>
   `;
 }
