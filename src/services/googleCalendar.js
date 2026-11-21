@@ -1,11 +1,16 @@
 import { store } from '../state/store.js';
-import { addDays, isoDate } from '../data/defaults.js';
+import { DEFAULT_GOOGLE_CLIENT_ID, addDays, isoDate } from '../data/defaults.js';
 
-const SCOPES =
-  'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly';
+const SCOPE_READONLY = 'https://www.googleapis.com/auth/calendar.readonly';
+const SCOPE_READWRITE =
+  'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events';
 
 let accessToken = null;
 let tokenExpiresAt = 0;
+
+function getRequestedScopes(readOnly) {
+  return readOnly ? SCOPE_READONLY : SCOPE_READWRITE;
+}
 
 function ensureGisLoaded() {
   return new Promise((resolve, reject) => {
@@ -25,7 +30,7 @@ function ensureGisLoaded() {
           clearInterval(timer);
           reject(
             new Error(
-              'Google Identity Services konnten nicht geladen werden. Bist du online?'
+              'Google Login-Skript konnte nicht geladen werden. Prüfe deine Internetverbindung oder Werbeblocker.'
             )
           );
         }
@@ -50,12 +55,49 @@ export function hasActiveGoogleToken() {
   return Boolean(accessToken && Date.now() < tokenExpiresAt - 30000);
 }
 
-export async function connectGoogleAccount(clientIdInput) {
-  const clientId = (clientIdInput || store.state.google.clientId || '').trim();
+/**
+ * Handle OAuth2 implicit token returned via URL hash (#access_token=...)
+ * when user uses Redirect-Login mode (helpful on Pixel 8 PWA / iPad Safari).
+ */
+export async function handleGoogleRedirectCallback() {
+  const hash = window.location.hash || '';
+  if (!hash.includes('access_token=') && !hash.includes('error=')) return null;
+
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  // Clean token from URL bar immediately
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  const err = params.get('error');
+  if (err) {
+    throw new Error(formatGoogleError(err, params.get('error_description')));
+  }
+
+  const token = params.get('access_token');
+  const expiresIn = Number(params.get('expires_in') || 3600);
+  if (!token) return null;
+
+  accessToken = token;
+  tokenExpiresAt = Date.now() + expiresIn * 1000;
+  store.update((s) => {
+    s.google.connected = true;
+  });
+
+  const count = await syncGoogleCalendars();
+  return count;
+}
+
+/**
+ * Standard Popup Sign-In via Google Identity Services (only requires Authorized JS Origin).
+ * Uses prompt: 'select_account consent' so the user can explicitly choose their Testnutzer email!
+ */
+export async function connectGoogleAccount(clientIdInput, { readOnly = false } = {}) {
+  const clientId = (
+    clientIdInput ||
+    store.state.google.clientId ||
+    DEFAULT_GOOGLE_CLIENT_ID
+  ).trim();
   if (!clientId) {
-    throw new Error(
-      'Bitte trage zuerst deine Google OAuth Client-ID in den Einstellungen ein.'
-    );
+    throw new Error('Bitte trage zuerst deine Google OAuth Client-ID ein.');
   }
 
   const oauth2 = await ensureGisLoaded();
@@ -64,14 +106,12 @@ export async function connectGoogleAccount(clientIdInput) {
     try {
       const client = oauth2.initTokenClient({
         client_id: clientId,
-        scope: SCOPES,
+        scope: getRequestedScopes(readOnly),
+        include_granted_scopes: true,
         callback: (response) => {
           if (response.error) {
             reject(
-              new Error(
-                response.error_description ||
-                  `Google Anmeldung abgebrochen (${response.error})`
-              )
+              new Error(formatGoogleError(response.error, response.error_description))
             );
           } else {
             resolve(response);
@@ -80,12 +120,12 @@ export async function connectGoogleAccount(clientIdInput) {
         error_callback: (err) => {
           reject(
             new Error(
-              err?.message || 'Google Anmelde-Popup wurde blockiert oder geschlossen.'
+              formatGoogleError(err?.type || 'popup_error', err?.message)
             )
           );
         },
       });
-      client.requestAccessToken({ prompt: 'consent' });
+      client.requestAccessToken({ prompt: 'select_account consent' });
     } catch (err) {
       reject(err);
     }
@@ -96,12 +136,57 @@ export async function connectGoogleAccount(clientIdInput) {
 
   store.update((s) => {
     s.google.clientId = clientId;
+    s.google.readOnlyMode = Boolean(readOnly);
     s.google.connected = true;
-    s.google.demoMode = false;
   });
 
   await syncGoogleCalendars();
   return true;
+}
+
+/**
+ * Alternative Redirect Login (no popup needed — requires Redirect URI in Google Cloud Console).
+ */
+export function startGoogleRedirectLogin(clientIdInput, { readOnly = false } = {}) {
+  const clientId = (
+    clientIdInput ||
+    store.state.google.clientId ||
+    DEFAULT_GOOGLE_CLIENT_ID
+  ).trim();
+  if (!clientId) {
+    throw new Error('Bitte trage zuerst deine Google OAuth Client-ID ein.');
+  }
+
+  store.update((s) => {
+    s.google.clientId = clientId;
+    s.google.readOnlyMode = Boolean(readOnly);
+  });
+
+  const redirectUri = `${window.location.origin}${window.location.pathname}`;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'token',
+    scope: getRequestedScopes(readOnly),
+    include_granted_scopes: 'true',
+    prompt: 'select_account consent',
+  });
+
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+function formatGoogleError(code, desc) {
+  const c = String(code || '').toLowerCase();
+  if (c === 'access_denied') {
+    return 'Google meldet „Zugriff verweigert (access_denied)“: Prüfe, ob du genau das Google-Konto aus deiner Testnutzer-Liste gewählt hast (Achtung: @gmail.com vs. @googlemail.com!) und auf „Erweitert → Weiter“ geklickt hast.';
+  }
+  if (c === 'popup_closed' || c === 'popup_closed_by_user') {
+    return 'Das Google-Anmeldefenster wurde geschlossen, bevor die Anmeldung fertig war.';
+  }
+  if (c === 'popup_failed_to_open') {
+    return 'Popup wurde vom Browser blockiert. Erlaube Popups oder nutze den Button „Ohne Popup anmelden“.';
+  }
+  return desc ? `${desc} (${code})` : `Google Anmeldung fehlgeschlagen (${code}).`;
 }
 
 export function disconnectGoogleAccount() {
@@ -109,7 +194,7 @@ export function disconnectGoogleAccount() {
     try {
       window.google.accounts.oauth2.revoke(accessToken);
     } catch {
-      // Ignore revoke error if offline
+      // Ignore offline revoke error
     }
   }
   accessToken = null;
@@ -141,6 +226,11 @@ async function googleFetch(url, options = {}) {
       s.google.connected = false;
     });
     throw new Error('Google Token abgelaufen. Bitte erneut anmelden.');
+  }
+  if (resp.status === 403) {
+    throw new Error(
+      'Keine Berechtigung (HTTP 403): Prüfe, ob die „Google Calendar API“ in deinem Google-Cloud-Projekt 922128740496 aktiviert ist.'
+    );
   }
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
@@ -176,7 +266,7 @@ export async function syncGoogleCalendars() {
   }
 
   const timeMin = new Date(`${addDays(-30)}T00:00:00`).toISOString();
-  const timeMax = new Date(`${addDays(150)}T23:59:59`).toISOString();
+  const timeMax = new Date(`${addDays(180)}T23:59:59`).toISOString();
 
   const fetchedEvents = [];
 
@@ -208,7 +298,10 @@ export async function syncGoogleCalendars() {
     s.google.selectedCalendarIds = selectedIds;
     if (primaryCal) {
       s.google.userEmail = primaryCal.id;
-      if (!s.google.writeCalendarId || !calendars.some((c) => c.id === s.google.writeCalendarId)) {
+      if (
+        !s.google.writeCalendarId ||
+        !calendars.some((c) => c.id === s.google.writeCalendarId)
+      ) {
         s.google.writeCalendarId = primaryCal.id;
       }
     }
@@ -266,6 +359,11 @@ export async function pushEventToGoogle({
   location = '',
   notes = '',
 }) {
+  if (store.state.google.readOnlyMode) {
+    throw new Error(
+      'Du bist im Nur-Lese-Modus angemeldet. Deaktiviere „Nur lesen“ in den Einstellungen, um Termine in Google zu speichern.'
+    );
+  }
   const calId = store.state.google.writeCalendarId || 'primary';
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin';
 

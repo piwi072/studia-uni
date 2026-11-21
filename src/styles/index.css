@@ -1838,6 +1838,76 @@ a {
   border-radius: 4px;
 }
 
+/* ---------- Module Hub Switcher (6 Fächer) ---------- */
+.module-pill-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.module-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-xs);
+  text-align: left;
+  transition: background-color 0.15s, border-color 0.15s, transform 0.12s;
+  min-width: 0;
+}
+
+.module-pill:hover {
+  background: var(--bg-surface-hover);
+  transform: translateY(-1px);
+}
+
+.module-pill.active {
+  background: var(--accent-primary-soft);
+  border-color: var(--accent-primary);
+}
+
+.module-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.module-pill-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
+.module-pill-body strong {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.module-pill.active .module-pill-body strong {
+  color: var(--accent-primary);
+}
+
+@media (max-width: 1060px) {
+  .module-pill-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 719px) {
+  .module-pill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ---------- Flashcards ("Karteikarten") ---------- */
 .flashcard-stage {
   perspective: 1000px;

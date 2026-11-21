@@ -12,7 +12,9 @@ import { focusTimer, formatMMSS } from './services/focusTimer.js';
 import {
   connectGoogleAccount,
   disconnectGoogleAccount,
+  handleGoogleRedirectCallback,
   pushEventToGoogle,
+  startGoogleRedirectLogin,
   syncGoogleCalendars,
 } from './services/googleCalendar.js';
 import {
@@ -44,20 +46,21 @@ const initialTab = ['today', 'timetable', 'calendar', 'exams', 'toolkit'].includ
 
 const ui = {
   tab: initialTab,
-  toolkitSub: ['tasks', 'cards', 'etech', 'focus', 'grades'].includes(params.get('sub'))
+  toolkitSub: ['modules', 'tasks', 'focus', 'grades'].includes(params.get('sub'))
     ? params.get('sub')
-    : 'tasks',
+    : 'modules',
+  selectedModuleId: 'mod_get',
   weekParityFilter: 'all',
-  timetableLayout: null, // null = automatic (<720px agenda, >=720px week grid)
+  timetableLayout: null,
   selectedTimetableDay: null,
   selectedCalendarDate: isoDate(),
   calYear: new Date().getFullYear(),
   calMonth: new Date().getMonth(),
   calFilter: 'all',
   examFilter: 'upcoming',
-  cardFilter: 'Alle',
   cardIndex: 0,
   cardFlipped: false,
+  googleError: '',
   calc: {
     prefixVal: '470',
     prefixUnit: 'n',
@@ -68,6 +71,10 @@ const ui = {
     r1: '1000',
     r2: '2200',
     uIn: '5',
+    cplxRe: '3',
+    cplxIm: '4',
+    numDec: '181',
+    byteVal: '1024',
     bwlP: '49',
     bwlKv: '21',
     bwlKf: '14000',
@@ -79,7 +86,6 @@ const ui = {
 
 const appRoot = document.getElementById('app');
 
-/* ---------- Theme & Pixel 8 Status Bar Sync ---------- */
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   const metaTheme = document.getElementById('meta-theme-color');
@@ -88,7 +94,6 @@ function applyTheme(theme) {
   }
 }
 
-/* ---------- Toast Helper ---------- */
 function showToast(message) {
   let region = document.querySelector('.toast-region');
   if (!region) {
@@ -104,10 +109,9 @@ function showToast(message) {
     el.style.opacity = '0';
     el.style.transition = 'opacity 0.25s';
     setTimeout(() => el.remove(), 260);
-  }, 3400);
+  }, 3600);
 }
 
-/* ---------- Hidden File Input for .ics / JSON Imports ---------- */
 function pickFile(accept, onLoad) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -122,7 +126,57 @@ function pickFile(accept, onLoad) {
   input.click();
 }
 
-/** Helper: mutate either a Google-derived exam's metadata or a manual Studia exam */
+/** Smart parser: converts pasted NotebookLM study guides / Q&A into Flashcards */
+function parseBulkFlashcards(rawText, courseKey) {
+  const cards = [];
+  const seen = new Set();
+  const addCard = (front, back) => {
+    const f = front.replace(/^[-•*]\s*/, '').trim();
+    const b = back.trim();
+    const key = `${f}|||${b}`;
+    if (f && b && !seen.has(key)) {
+      seen.add(key);
+      cards.push({ id: uid('fc'), course: courseKey, front: f, back: b, box: 1 });
+    }
+  };
+
+  const text = String(rawText || '').trim();
+  if (!text) return cards;
+
+  // Format 1: Markdown table rows | Question | Answer |
+  const tableLines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('|') && l.endsWith('|') && !/^\|[\s-:|]+\|$/.test(l));
+  for (let i = 0; i < tableLines.length; i++) {
+    const cols = tableLines[i]
+      .slice(1, -1)
+      .split('|')
+      .map((c) => c.trim());
+    if (cols.length >= 2 && !(i === 0 && /^(frage|begriff|question|term)$/i.test(cols[0]))) {
+      addCard(cols[0], cols[1]);
+    }
+  }
+
+  // Format 2: Q/F & A blocks ("F: ... A: ..." or "Frage: ... Antwort: ...")
+  const qaRegex =
+    /(?:^|\n)\s*(?:F|Frage|Q|Question)\s*:\s*([\s\S]*?)\n\s*(?:A|Antwort|Answer)\s*:\s*([\s\S]*?)(?=\n\s*(?:F|Frage|Q|Question)\s*:|$)/gi;
+  let match;
+  while ((match = qaRegex.exec(text)) !== null) {
+    addCard(match[1], match[2]);
+  }
+
+  // Format 3: Line-by-line "Front :: Back" or "Front — Back"
+  for (const line of text.split(/\r?\n/)) {
+    const sep = line.includes('::') ? '::' : line.includes(' — ') ? ' — ' : null;
+    if (!sep) continue;
+    const [front, ...rest] = line.split(sep);
+    addCard(front, rest.join(sep));
+  }
+
+  return cards;
+}
+
 function mutateExamById(examId, fn) {
   store.update((s) => {
     if (examId.startsWith('gex_')) {
@@ -149,7 +203,6 @@ function mutateExamById(examId, fn) {
 
 let lastRenderedRoute = '';
 
-/* ---------- Main Render ---------- */
 function render(preserveFocusId = null) {
   const activeEl = preserveFocusId ? document.getElementById(preserveFocusId) : null;
   const caretPos = activeEl && 'selectionStart' in activeEl ? activeEl.selectionStart : null;
@@ -310,7 +363,7 @@ function render(preserveFocusId = null) {
       </nav>
     </div>
 
-    ${renderModal(state, ui.modal)}
+    ${renderModal(state, ui.modal, ui)}
   `;
 
   if (preserveFocusId) {
@@ -321,14 +374,13 @@ function render(preserveFocusId = null) {
         try {
           nextEl.setSelectionRange(caretPos, caretPos);
         } catch {
-          // Ignore for input types that disallow selectionRange
+          // Ignore
         }
       }
     }
   }
 }
 
-/* ---------- Smooth 1-Second Focus Timer DOM Update ---------- */
 focusTimer.subscribe((snap) => {
   const timeEl = document.getElementById('focus-time-readout');
   const ringEl = document.getElementById('focus-ring-circle');
@@ -351,7 +403,6 @@ focusTimer.onCompleteCallback = (msg) => {
   render();
 };
 
-/* ---------- Click Event Delegation ---------- */
 appRoot.addEventListener('click', async (e) => {
   const navBtn = e.target.closest('[data-nav]');
   if (navBtn) {
@@ -365,7 +416,6 @@ appRoot.addEventListener('click', async (e) => {
 
   const actionEl = e.target.closest('[data-action]');
   if (!actionEl) return;
-
   const action = actionEl.dataset.action;
 
   if (action === 'backdrop-close') {
@@ -400,6 +450,44 @@ appRoot.addEventListener('click', async (e) => {
     vibrate(8);
     store.update((s) => {
       s.theme = s.theme === 'dark' ? 'light' : 'dark';
+    });
+    return;
+  }
+
+  /* Module selector & module file import */
+  if (action === 'select-module') {
+    vibrate(6);
+    ui.selectedModuleId = actionEl.dataset.id;
+    ui.cardIndex = 0;
+    ui.cardFlipped = false;
+    render();
+    return;
+  }
+  if (action === 'import-module-file') {
+    const modId = actionEl.dataset.id;
+    pickFile('.md,.txt,text/markdown,text/plain', (text, filename) => {
+      const clean = text.trim();
+      if (!clean) return;
+      store.update((s) => {
+        const mod = (s.modules || []).find((m) => m.id === modId);
+        if (!mod) return;
+        mod.notebookNotes = mod.notebookNotes || [];
+        mod.notebookNotes.unshift({
+          id: uid('nn'),
+          title: filename.replace(/\.(md|txt)$/i, ''),
+          content: clean.slice(0, 12000),
+          updatedAt: isoDate(),
+        });
+      });
+      showToast(`„${filename}“ im Modul gespeichert!`);
+    });
+    return;
+  }
+  if (action === 'delete-module-note') {
+    const { modId, noteId } = actionEl.dataset;
+    store.update((s) => {
+      const mod = (s.modules || []).find((m) => m.id === modId);
+      if (mod) mod.notebookNotes = (mod.notebookNotes || []).filter((n) => n.id !== noteId);
     });
     return;
   }
@@ -439,9 +527,8 @@ appRoot.addEventListener('click', async (e) => {
     return;
   }
   if (action === 'delete-course') {
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      s.timetable = s.timetable.filter((c) => c.id !== id);
+      s.timetable = s.timetable.filter((c) => c.id !== actionEl.dataset.id);
     });
     ui.modal = null;
     showToast('Veranstaltung entfernt');
@@ -455,8 +542,7 @@ appRoot.addEventListener('click', async (e) => {
   }
   if (action === 'import-ics-timetable') {
     pickFile('.ics,text/calendar', (text) => {
-      const parsed = parseICS(text);
-      const entries = inferTimetableEntriesFromICS(parsed);
+      const entries = inferTimetableEntriesFromICS(parseICS(text));
       if (entries.length === 0) {
         showToast('Keine passenden Termine in der .ics-Datei gefunden.');
         return;
@@ -507,9 +593,8 @@ appRoot.addEventListener('click', async (e) => {
     return;
   }
   if (action === 'delete-event') {
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      s.calendarEvents = s.calendarEvents.filter((ev) => ev.id !== id);
+      s.calendarEvents = s.calendarEvents.filter((ev) => ev.id !== actionEl.dataset.id);
     });
     showToast('Termin gelöscht');
     return;
@@ -525,43 +610,30 @@ appRoot.addEventListener('click', async (e) => {
 
     const currentlyExam = isGoogleEventExam(ev, store.state.google);
     store.update((s) => {
-      s.google.promotedGoogleExamIds = (s.google.promotedGoogleExamIds || []).filter(
-        (k) => k !== gKey
-      );
-      s.google.hiddenGoogleExamIds = (s.google.hiddenGoogleExamIds || []).filter(
-        (k) => k !== gKey
-      );
-      if (currentlyExam) {
-        s.google.hiddenGoogleExamIds.push(gKey);
-      } else {
-        s.google.promotedGoogleExamIds.push(gKey);
-      }
+      s.google.promotedGoogleExamIds = (s.google.promotedGoogleExamIds || []).filter((k) => k !== gKey);
+      s.google.hiddenGoogleExamIds = (s.google.hiddenGoogleExamIds || []).filter((k) => k !== gKey);
+      if (currentlyExam) s.google.hiddenGoogleExamIds.push(gKey);
+      else s.google.promotedGoogleExamIds.push(gKey);
     });
-    showToast(
-      currentlyExam
-        ? 'Aus der Klausuren-Ansicht entfernt (bleibt im Google Kalender).'
-        : 'In deinen Klausuren-Lernplan übernommen!'
-    );
+    showToast(currentlyExam ? 'Aus Klausuren ausgeblendet.' : 'In Klausuren-Lernplan übernommen!');
     return;
   }
   if (action === 'dismiss-google-exam') {
     const gKey = actionEl.dataset.gkey;
     store.update((s) => {
-      s.google.promotedGoogleExamIds = (s.google.promotedGoogleExamIds || []).filter(
-        (k) => k !== gKey
-      );
+      s.google.promotedGoogleExamIds = (s.google.promotedGoogleExamIds || []).filter((k) => k !== gKey);
       if (!(s.google.hiddenGoogleExamIds || []).includes(gKey)) {
         s.google.hiddenGoogleExamIds.push(gKey);
       }
     });
-    showToast('Aus Klausuren ausgeblendet (Termin bleibt im Google Kalender).');
+    showToast('Aus Klausuren ausgeblendet (bleibt im Google Kalender).');
     return;
   }
   if (action === 'import-ics-calendar') {
     pickFile('.ics,text/calendar', (text) => {
       const parsed = parseICS(text);
       if (parsed.length === 0) {
-        showToast('Keine Termine in dieser .ics-Datei gefunden.');
+        showToast('Keine Termine gefunden.');
         return;
       }
       store.update((s) => {
@@ -586,29 +658,51 @@ appRoot.addEventListener('click', async (e) => {
   }
   if (action === 'connect-google') {
     const input = document.getElementById('set-client-id');
+    const roEl = document.getElementById('set-readonly-toggle');
     const clientId = input ? input.value.trim() : store.state.google.clientId;
+    const readOnly = roEl ? roEl.checked : Boolean(store.state.google.readOnlyMode);
+    ui.googleError = '';
     try {
-      showToast('Verbinde mit Google-Konto…');
-      await connectGoogleAccount(clientId);
-      const detected = getUnifiedExams(store.state).filter((e) => e.fromGoogle).length;
-      showToast(`Google Kalender verbunden! ${detected} Klausur(en) automatisch erkannt.`);
+      showToast('Google-Anmeldung öffnet sich…');
+      await connectGoogleAccount(clientId, { readOnly });
+      const detected = getUnifiedExams(store.state).filter((ex) => ex.fromGoogle).length;
+      showToast(`Google Kalender verbunden! ${detected} Klausur(en) erkannt.`);
       render();
     } catch (err) {
-      showToast(err.message || 'Google Anmeldung fehlgeschlagen.');
+      ui.googleError = err.message || 'Google Anmeldung fehlgeschlagen.';
+      showToast(ui.googleError);
+      render();
+    }
+    return;
+  }
+  if (action === 'connect-google-redirect') {
+    const input = document.getElementById('set-client-id');
+    const roEl = document.getElementById('set-readonly-toggle');
+    const clientId = input ? input.value.trim() : store.state.google.clientId;
+    const readOnly = roEl ? roEl.checked : Boolean(store.state.google.readOnlyMode);
+    try {
+      startGoogleRedirectLogin(clientId, { readOnly });
+    } catch (err) {
+      ui.googleError = err.message;
+      render();
     }
     return;
   }
   if (action === 'sync-google-now') {
     try {
       const count = await syncGoogleCalendars();
+      ui.googleError = '';
       showToast(`${count} Google-Termine synchronisiert.`);
     } catch (err) {
-      showToast(err.message || 'Synchronisierung fehlgeschlagen.');
+      ui.googleError = err.message;
+      showToast(err.message);
+      render();
     }
     return;
   }
   if (action === 'disconnect-google') {
     disconnectGoogleAccount();
+    ui.googleError = '';
     showToast('Google-Konto getrennt.');
     return;
   }
@@ -624,18 +718,18 @@ appRoot.addEventListener('click', async (e) => {
     if (store.state.google.connected) {
       try {
         await pushEventToGoogle(payload);
-        showToast('Termin in deinem Google Kalender gespeichert!');
+        showToast('Im Google Kalender gespeichert!');
       } catch (err) {
         showToast(err.message);
       }
     } else {
       exportSingleEventToICS(payload);
-      showToast('Als .ics gespeichert — tippe auf die Datei, um sie im Google Kalender zu öffnen.');
+      showToast('Als .ics gespeichert.');
     }
     return;
   }
 
-  /* Exams actions (supports both Google-synced & manual exams!) */
+  /* Exams actions */
   if (action === 'set-exam-filter') {
     ui.examFilter = actionEl.dataset.value;
     render();
@@ -658,9 +752,8 @@ appRoot.addEventListener('click', async (e) => {
     return;
   }
   if (action === 'delete-exam') {
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      s.exams = s.exams.filter((x) => x.id !== id);
+      s.exams = s.exams.filter((x) => x.id !== actionEl.dataset.id);
     });
     showToast('Klausur gelöscht');
     return;
@@ -720,29 +813,20 @@ appRoot.addEventListener('click', async (e) => {
   }
   if (action === 'toggle-task') {
     vibrate(10);
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      const t = s.tasks.find((x) => x.id === id);
+      const t = s.tasks.find((x) => x.id === actionEl.dataset.id);
       if (t) t.done = !t.done;
     });
     return;
   }
   if (action === 'delete-task') {
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      s.tasks = s.tasks.filter((x) => x.id !== id);
+      s.tasks = s.tasks.filter((x) => x.id !== actionEl.dataset.id);
     });
     return;
   }
 
   /* Flashcards actions */
-  if (action === 'card-filter') {
-    ui.cardFilter = actionEl.dataset.value;
-    ui.cardIndex = 0;
-    ui.cardFlipped = false;
-    render();
-    return;
-  }
   if (action === 'card-flip') {
     vibrate(6);
     ui.cardFlipped = !ui.cardFlipped;
@@ -751,12 +835,6 @@ appRoot.addEventListener('click', async (e) => {
   }
   if (action === 'card-prev') {
     ui.cardIndex = Math.max(0, (ui.cardIndex || 0) - 1);
-    ui.cardFlipped = false;
-    render();
-    return;
-  }
-  if (action === 'card-jump') {
-    ui.cardIndex = Number(actionEl.dataset.index || 0);
     ui.cardFlipped = false;
     render();
     return;
@@ -776,9 +854,8 @@ appRoot.addEventListener('click', async (e) => {
     return;
   }
   if (action === 'delete-flashcard') {
-    const id = actionEl.dataset.id;
     store.update((s) => {
-      s.flashcards = (s.flashcards || []).filter((c) => c.id !== id);
+      s.flashcards = (s.flashcards || []).filter((c) => c.id !== actionEl.dataset.id);
     });
     ui.cardFlipped = false;
     return;
@@ -849,19 +926,14 @@ appRoot.addEventListener('click', async (e) => {
   }
   if (action === 'focus-wakelock') {
     const on = await focusTimer.toggleWakeLock();
-    showToast(on ? 'Display bleibt in der Bib wach.' : 'Display-Wachhalten ausgeschaltet.');
+    showToast(on ? 'Display bleibt in der Bib wach.' : 'Display-Wachhalten aus.');
     render();
     return;
   }
   if (action === 'log-manual-study') {
     const subj = focusTimer.subject || 'GET I';
     store.update((s) => {
-      s.studySessions.push({
-        id: uid('ss'),
-        course: subj,
-        minutes: 30,
-        date: isoDate(),
-      });
+      s.studySessions.push({ id: uid('ss'), course: subj, minutes: 30, date: isoDate() });
     });
     showToast(`+30 Min Lernzeit für ${subj} geloggt!`);
     return;
@@ -898,7 +970,6 @@ appRoot.addEventListener('click', async (e) => {
   }
 });
 
-/* ---------- Live Input Events (E-Technik & BWL Calculators) ---------- */
 appRoot.addEventListener('input', (e) => {
   const key = e.target.dataset?.calc;
   if (!key) return;
@@ -906,7 +977,6 @@ appRoot.addEventListener('input', (e) => {
   render(e.target.id);
 });
 
-/* ---------- Change Events (Selects / Checkboxes) ---------- */
 appRoot.addEventListener('change', async (e) => {
   const target = e.target;
   if (target.dataset?.calc) {
@@ -920,12 +990,16 @@ appRoot.addEventListener('change', async (e) => {
     focusTimer.setSubject(target.value);
     return;
   }
-  if (action === 'plan-grade-change') {
-    const id = target.dataset.id;
-    const val = Number(target.value);
+  if (action === 'toggle-google-readonly') {
     store.update((s) => {
-      const m = (s.semesterPlan || []).find((x) => x.id === id);
-      if (m) m.targetGrade = val;
+      s.google.readOnlyMode = target.checked;
+    });
+    return;
+  }
+  if (action === 'plan-grade-change') {
+    store.update((s) => {
+      const m = (s.semesterPlan || []).find((x) => x.id === target.dataset.id);
+      if (m) m.targetGrade = Number(target.value);
     });
     return;
   }
@@ -955,17 +1029,15 @@ appRoot.addEventListener('change', async (e) => {
   }
 });
 
-/* ---------- Form Submissions ---------- */
 appRoot.addEventListener('submit', async (e) => {
   e.preventDefault();
   const form = e.target;
   const fd = new FormData(form);
 
   if (form.dataset.form === 'add-topic') {
-    const examId = form.dataset.examId;
     const text = String(fd.get('topic') || '').trim();
     if (!text) return;
-    mutateExamById(examId, (ex) => {
+    mutateExamById(form.dataset.examId, (ex) => {
       ex.topics = ex.topics || [];
       ex.topics.push({ id: uid('tp'), text, done: false });
     });
@@ -973,15 +1045,14 @@ appRoot.addEventListener('submit', async (e) => {
   }
 
   if (form.dataset.form === 'exam-keywords') {
-    const raw = String(fd.get('keywords') || '');
-    const list = raw
+    const list = String(fd.get('keywords') || '')
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
     store.update((s) => {
       s.google.examKeywords = list.length ? list : ['klausur', 'prüfung'];
     });
-    showToast('Klausur-Schlagwörter gespeichert.');
+    showToast('Schlagwörter gespeichert.');
     return;
   }
 
@@ -998,6 +1069,61 @@ appRoot.addEventListener('submit', async (e) => {
 
   const modalType = form.dataset.modalSubmit;
   if (!modalType) return;
+
+  if (modalType === 'module-notebook') {
+    const modId = form.dataset.id;
+    store.update((s) => {
+      const mod = (s.modules || []).find((m) => m.id === modId);
+      if (!mod) return;
+      mod.notebookLabel = String(fd.get('notebookLabel') || '').trim() || `NotebookLM · ${mod.short}`;
+      mod.notebookUrl = String(fd.get('notebookUrl') || '').trim() || 'https://notebooklm.google.com/';
+      const mUrl = String(fd.get('moodleUrl') || '').trim();
+      if (mUrl) mod.moodleUrl = mUrl;
+    });
+    ui.modal = null;
+    showToast('Notebook-Link im Modul gespeichert!');
+    render();
+    return;
+  }
+
+  if (modalType === 'module-note') {
+    const modId = form.dataset.id;
+    store.update((s) => {
+      const mod = (s.modules || []).find((m) => m.id === modId);
+      if (!mod) return;
+      mod.notebookNotes = mod.notebookNotes || [];
+      mod.notebookNotes.unshift({
+        id: uid('nn'),
+        title: String(fd.get('title') || '').trim(),
+        content: String(fd.get('content') || '').trim(),
+        updatedAt: isoDate(),
+      });
+    });
+    ui.modal = null;
+    showToast('Info aus Notebook im Modul gespeichert!');
+    render();
+    return;
+  }
+
+  if (modalType === 'import-notebook-cards') {
+    const mod = (store.state.modules || []).find((m) => m.id === form.dataset.id);
+    if (!mod) return;
+    const bulk = String(fd.get('bulkText') || '');
+    const parsed = parseBulkFlashcards(bulk, mod.courseKey);
+    if (parsed.length === 0) {
+      showToast('Kein Format erkannt. Nutze z. B. „Frage :: Antwort“ oder „F: ... / A: ...“.');
+      return;
+    }
+    store.update((s) => {
+      s.flashcards = [...parsed, ...(s.flashcards || [])];
+    });
+    ui.modal = null;
+    ui.cardIndex = 0;
+    ui.cardFlipped = false;
+    showToast(`${parsed.length} Karteikarten für ${mod.short} importiert!`);
+    render();
+    return;
+  }
 
   if (modalType === 'course') {
     const id = form.dataset.id;
@@ -1030,7 +1156,6 @@ appRoot.addEventListener('submit', async (e) => {
   if (modalType === 'exam') {
     const id = form.dataset.id;
     const gKey = form.dataset.gkey;
-
     if (gKey) {
       mutateExamById(`gex_${gKey}`, (meta) => {
         meta.ects = Number(fd.get('ects') || 5);
@@ -1039,7 +1164,7 @@ appRoot.addEventListener('submit', async (e) => {
         meta.color = String(fd.get('color') || 'sage');
       });
       ui.modal = null;
-      showToast('Lern-Details zur Google-Klausur gespeichert.');
+      showToast('Lern-Details gespeichert.');
       render();
       return;
     }
@@ -1056,7 +1181,6 @@ appRoot.addEventListener('submit', async (e) => {
       aids: String(fd.get('aids') || '').trim(),
       color: String(fd.get('color') || 'sage'),
     };
-
     if (!id && fd.get('pushGoogle') === 'on' && store.state.google.connected) {
       try {
         const created = await pushEventToGoogle({
@@ -1065,7 +1189,7 @@ appRoot.addEventListener('submit', async (e) => {
           start: entry.time,
           end: addMinutesToTime(entry.time, entry.durationMin),
           location: entry.room,
-          notes: `${entry.ects} ECTS · ${entry.attempt}. Versuch${entry.aids ? ` · Hilfsmittel: ${entry.aids}` : ''}`,
+          notes: `${entry.ects} ECTS · ${entry.attempt}. Versuch`,
         });
         if (created?.id) {
           store.update((s) => {
@@ -1081,7 +1205,7 @@ appRoot.addEventListener('submit', async (e) => {
           });
         }
         ui.modal = null;
-        showToast('Klausur direkt im Google Kalender angelegt!');
+        showToast('Klausur im Google Kalender angelegt!');
         render();
         return;
       } catch (err) {
@@ -1105,12 +1229,10 @@ appRoot.addEventListener('submit', async (e) => {
     const gradeRaw = String(fd.get('grade') || '').trim();
     const sem = String(fd.get('semester') || '1. Sem.').trim();
     const examObj = getUnifiedExams(store.state).find((x) => x.id === id);
-
     mutateExamById(id, (target) => {
       target.completed = true;
       if (gradeRaw) target.grade = Number(gradeRaw);
     });
-
     if (gradeRaw && examObj) {
       store.update((s) => {
         s.grades.push({
@@ -1123,7 +1245,7 @@ appRoot.addEventListener('submit', async (e) => {
       });
     }
     ui.modal = null;
-    showToast(gradeRaw ? 'Klausur abgeschlossen & Note gespeichert!' : 'Klausur als geschrieben markiert!');
+    showToast(gradeRaw ? 'Klausur abgeschlossen & Note gespeichert!' : 'Klausur abgeschlossen!');
     render();
     return;
   }
@@ -1138,19 +1260,17 @@ appRoot.addEventListener('submit', async (e) => {
       notes: String(fd.get('notes') || '').trim(),
     };
     const pushGoogle = fd.get('pushGoogle') === 'on';
-
     if (pushGoogle && store.state.google.connected) {
       try {
         await pushEventToGoogle(payload);
         ui.modal = null;
-        showToast('Termin direkt im Google Kalender gespeichert!');
+        showToast('Termin im Google Kalender gespeichert!');
         render();
         return;
       } catch (err) {
-        showToast(`Google Sync fehlgeschlagen (${err.message}) — lokal gespeichert.`);
+        showToast(`Google Sync fehlgeschlagen — lokal gespeichert.`);
       }
     }
-
     store.update((s) => {
       s.calendarEvents.push({
         id: uid('ev'),
@@ -1160,14 +1280,9 @@ appRoot.addEventListener('submit', async (e) => {
         color: 'sage',
       });
     });
-
-    if (pushGoogle && !store.state.google.connected) {
-      exportSingleEventToICS(payload);
-      showToast('Termin gespeichert & .ics für Google Kalender geladen!');
-    } else {
-      showToast('Termin gespeichert');
-    }
+    if (pushGoogle && !store.state.google.connected) exportSingleEventToICS(payload);
     ui.modal = null;
+    showToast('Termin gespeichert');
     render();
     return;
   }
@@ -1178,16 +1293,12 @@ appRoot.addEventListener('submit', async (e) => {
       s.tasks.push({
         id: uid('tk'),
         title: String(fd.get('title') || '').trim(),
-        course: String(fd.get('course') || 'Uni').trim(),
+        course: String(fd.get('course') || 'Orga').trim(),
         due: String(fd.get('due') || ''),
         dueTime: String(fd.get('dueTime') || '23:59'),
         recurrence,
         recurrenceLabel:
-          recurrence === 'weekly'
-            ? 'Jede Woche'
-            : recurrence === 'biweekly'
-              ? 'Alle 2 Wochen'
-              : 'Einmalig',
+          recurrence === 'weekly' ? 'Jede Woche' : recurrence === 'biweekly' ? 'Alle 2 Wochen' : 'Einmalig',
         streak: 0,
         lastCompleted: null,
         done: false,
@@ -1204,7 +1315,7 @@ appRoot.addEventListener('submit', async (e) => {
       s.flashcards = s.flashcards || [];
       s.flashcards.unshift({
         id: uid('fc'),
-        course: String(fd.get('course') || 'BWL'),
+        course: String(fd.get('course') || 'GET I'),
         front: String(fd.get('front') || '').trim(),
         back: String(fd.get('back') || '').trim(),
         box: 1,
@@ -1213,7 +1324,7 @@ appRoot.addEventListener('submit', async (e) => {
     ui.modal = null;
     ui.cardIndex = 0;
     ui.cardFlipped = false;
-    showToast('Karteikarte hinzugefügt!');
+    showToast('Karteikarte gespeichert!');
     render();
     return;
   }
@@ -1238,7 +1349,7 @@ appRoot.addEventListener('submit', async (e) => {
     const id = form.dataset.id;
     const payload = {
       title: String(fd.get('title') || '').trim(),
-      course: String(fd.get('course') || 'Uni').trim(),
+      course: String(fd.get('course') || 'HSD').trim(),
       content: String(fd.get('content') || '').trim(),
       updatedAt: isoDate(),
     };
@@ -1268,7 +1379,6 @@ appRoot.addEventListener('submit', async (e) => {
   }
 });
 
-/* ---------- Keyboard Escape & Automatic iPad/Phone Resize ---------- */
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.modal) {
     ui.modal = null;
@@ -1281,12 +1391,11 @@ window.addEventListener('resize', () => {
   const nowSmall = window.innerWidth < 720;
   if (nowSmall !== lastIsSmall) {
     lastIsSmall = nowSmall;
-    ui.timetableLayout = null; // Reset to natural responsive layout
+    ui.timetableLayout = null;
     render();
   }
 });
 
-/* ---------- PWA Install Prompt & Service Worker ---------- */
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   ui.installPromptEvent = e;
@@ -1300,4 +1409,19 @@ if ('serviceWorker' in navigator) {
 }
 
 store.subscribe(() => render());
+
+// Check if returning from Google Redirect OAuth flow
+handleGoogleRedirectCallback()
+  .then((count) => {
+    if (count !== null) {
+      showToast(`Google Kalender verbunden! ${count} Termine geladen.`);
+      render();
+    }
+  })
+  .catch((err) => {
+    ui.googleError = err.message;
+    ui.modal = { type: 'settings' };
+    render();
+  });
+
 render();

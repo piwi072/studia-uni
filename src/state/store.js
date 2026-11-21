@@ -1,6 +1,8 @@
 import {
   DEFAULT_EXAM_KEYWORDS,
+  DEFAULT_GOOGLE_CLIENT_ID,
   addDaysToISO,
+  createDefaultModules,
   createDefaultState,
   isoDate,
 } from '../data/defaults.js';
@@ -19,21 +21,27 @@ class StudiaStore {
       if (!raw) return createDefaultState();
       const parsed = JSON.parse(raw);
       const fallback = createDefaultState();
+      const mergedGoogle = {
+        ...fallback.google,
+        ...(parsed.google || {}),
+        clientId: parsed.google?.clientId || DEFAULT_GOOGLE_CLIENT_ID,
+        examKeywords: parsed.google?.examKeywords || fallback.google.examKeywords,
+        promotedGoogleExamIds: parsed.google?.promotedGoogleExamIds || [],
+        hiddenGoogleExamIds: parsed.google?.hiddenGoogleExamIds || [],
+        examMetaByGoogleId: {
+          ...fallback.google.examMetaByGoogleId,
+          ...(parsed.google?.examMetaByGoogleId || {}),
+        },
+      };
       return {
         ...fallback,
         ...parsed,
         profile: { ...fallback.profile, ...(parsed.profile || {}) },
-        google: {
-          ...fallback.google,
-          ...(parsed.google || {}),
-          examKeywords: parsed.google?.examKeywords || fallback.google.examKeywords,
-          promotedGoogleExamIds: parsed.google?.promotedGoogleExamIds || [],
-          hiddenGoogleExamIds: parsed.google?.hiddenGoogleExamIds || [],
-          examMetaByGoogleId: {
-            ...fallback.google.examMetaByGoogleId,
-            ...(parsed.google?.examMetaByGoogleId || {}),
-          },
-        },
+        google: mergedGoogle,
+        modules:
+          Array.isArray(parsed.modules) && parsed.modules.length > 0
+            ? parsed.modules
+            : createDefaultModules(),
       };
     } catch {
       return createDefaultState();
@@ -64,7 +72,7 @@ class StudiaStore {
   }
 
   resetToDemo() {
-    const prevClientId = this.state.google.clientId;
+    const prevClientId = this.state.google.clientId || DEFAULT_GOOGLE_CLIENT_ID;
     const prevTheme = this.state.theme;
     this.state = createDefaultState();
     this.state.google.clientId = prevClientId;
@@ -86,7 +94,16 @@ class StudiaStore {
       ...fallback,
       ...parsed,
       profile: { ...fallback.profile, ...(parsed.profile || {}) },
-      google: { ...fallback.google, ...(parsed.google || {}), connected: false },
+      google: {
+        ...fallback.google,
+        ...(parsed.google || {}),
+        clientId: parsed.google?.clientId || DEFAULT_GOOGLE_CLIENT_ID,
+        connected: false,
+      },
+      modules:
+        Array.isArray(parsed.modules) && parsed.modules.length > 0
+          ? parsed.modules
+          : createDefaultModules(),
     };
     this.notify();
   }
@@ -109,11 +126,6 @@ export function isGoogleEventExam(ev, googleState) {
   return keywords.some((kw) => kw && haystack.includes(kw));
 }
 
-/**
- * Returns unified list of exams:
- * 1) Automatically detected / promoted Google Calendar events (primary source!)
- * 2) Optional manually added Studia exams
- */
 export function getUnifiedExams(state) {
   const g = state.google || {};
   const metaMap = g.examMetaByGoogleId || {};
@@ -193,7 +205,6 @@ export function computeExamReadiness(exam) {
   return { done, total: topics.length, pct: Math.round((done / topics.length) * 100) };
 }
 
-/** Expand recurring tasks into upcoming calendar markers (next 4 occurrences) */
 export function getAllCalendarEvents(state) {
   const events = [];
 
@@ -212,7 +223,6 @@ export function getAllCalendarEvents(state) {
     });
   }
 
-  // Manual (non-Google) exams surfaced in calendar
   for (const ex of state.exams || []) {
     if (ex.completed) continue;
     events.push({
@@ -230,7 +240,6 @@ export function getAllCalendarEvents(state) {
     });
   }
 
-  // Tasks & recurring deadlines surfaced in calendar (next 4 cycles for recurring!)
   for (const tk of state.tasks || []) {
     if (!tk.due || (tk.recurrence === 'once' && tk.done)) continue;
     const step = tk.recurrence === 'weekly' ? 7 : tk.recurrence === 'biweekly' ? 14 : 0;

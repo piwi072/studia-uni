@@ -157,7 +157,7 @@ export function renderTodayView(state) {
       </div>
       <div class="today-hero-actions">
         <button class="btn-hero" data-nav="timetable">${ICONS.timetable} Stundenplan</button>
-        <button class="btn-hero" data-nav="toolkit" data-sub="cards">Karteikarten</button>
+        <button class="btn-hero" data-nav="toolkit" data-sub="modules">Module & Notebooks</button>
       </div>
     </section>
 

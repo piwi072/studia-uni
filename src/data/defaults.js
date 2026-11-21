@@ -1,3 +1,6 @@
+export const DEFAULT_GOOGLE_CLIENT_ID =
+  '922128740496-p75em90i978ijaubirk1loa75uk7l4nh.apps.googleusercontent.com';
+
 export const COURSE_COLORS = {
   sage: { label: 'Salbei', hex: '#2D6A4F', bg: 'rgba(45, 106, 79, 0.12)', badge: 'badge-sage' },
   slate: { label: 'Schieferblau', hex: '#356075', bg: 'rgba(53, 96, 117, 0.13)', badge: 'badge-slate' },
@@ -81,18 +84,16 @@ export function getISOWeek(date = new Date()) {
 }
 
 export function getMondayIndex(date = new Date()) {
-  const jsDay = date.getDay(); // 0=Sun..6=Sat
-  return jsDay === 0 ? 6 : jsDay - 1; // 0=Mon..6=Sun
+  const jsDay = date.getDay();
+  return jsDay === 0 ? 6 : jsDay - 1;
 }
 
-/** Find next date matching targetMonIdx (0=Mon..6=Sun) >= today */
 export function nextWeekdayISO(targetMonIdx, fromDate = new Date()) {
   const cur = getMondayIndex(fromDate);
-  let delta = (targetMonIdx - cur + 7) % 7;
+  const delta = (targetMonIdx - cur + 7) % 7;
   return addDays(delta, fromDate);
 }
 
-/** Advance a recurring anchor date forward in stepDays increments until >= today */
 export function nextOccurrenceFromAnchor(anchorISO, stepDays, fromDate = new Date()) {
   const todayStr = isoDate(fromDate);
   let cur = anchorISO;
@@ -120,14 +121,144 @@ export function uid(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+export function createDefaultModules() {
+  const today = isoDate();
+  return [
+    {
+      id: 'mod_get',
+      courseKey: 'GET I',
+      title: 'Grundlagen der Elektrotechnik I für WIE',
+      short: 'GET I',
+      lecturer: 'Schoft',
+      room: '05.1.001 (EI)',
+      schedule: 'Fr 12:00–13:45 (VL) · 14:00–14:45 (ÜB)',
+      ects: 5,
+      color: 'sage',
+      toolType: 'get',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · GET I',
+      notebookNotes: [
+        {
+          id: 'nn_get_1',
+          title: 'Praktikum-Hinweis (1× im Semester)',
+          content: 'Raum 05.2.055 · Team GET I WIE. Versuchsanleitung vorab im Moodle laden und durchlesen.',
+          updatedAt: today,
+        },
+      ],
+    },
+    {
+      id: 'mod_mathe',
+      courseKey: 'Mathe I',
+      title: 'Mathematik I für WIE',
+      short: 'Mathe I',
+      lecturer: 'Kerkhoff, Kirchner',
+      room: '05.1.001 (EI)',
+      schedule: 'Di 12:00–13:45 (ÜB) · 14:00–15:45 (VL)',
+      ects: 5,
+      color: 'terracotta',
+      toolType: 'mathe',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · Mathe I',
+      notebookNotes: [
+        {
+          id: 'nn_mathe_1',
+          title: 'Übungs-Rhythmus',
+          content: 'Arbeitsblatt jede Woche bis Dienstag 12:00 Uhr rechtzeitig zur Übung fertigmachen.',
+          updatedAt: today,
+        },
+      ],
+    },
+    {
+      id: 'mod_it',
+      courseKey: 'Informationstechnik',
+      title: 'Grundlagen der Informationstechnik',
+      short: 'Informationstechnik',
+      lecturer: 'Machmerth',
+      room: '04.E.007 (AM)',
+      schedule: 'Di 10:00–11:45 (VL) · 17:00–18:45 (ÜB)',
+      ects: 5,
+      color: 'slate',
+      toolType: 'it',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · Informationstechnik',
+      notebookNotes: [
+        {
+          id: 'nn_it_1',
+          title: 'Abgabe-Rhythmus',
+          content: 'Alle 2 Wochen Sonntag um 24:00 Uhr (22. Nov., 6. Dez., 20. Dez., …).',
+          updatedAt: today,
+        },
+      ],
+    },
+    {
+      id: 'mod_inf',
+      courseKey: 'Informatik I',
+      title: 'Grundlagen der Informatik I',
+      short: 'Informatik I',
+      lecturer: 'Mondwurf',
+      room: '04.E.007 (AM)',
+      schedule: 'Mi 08:00–09:45 (VL) · 10:00–11:45 (ÜB)',
+      ects: 5,
+      color: 'sage',
+      toolType: 'inf',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · Informatik I',
+      notebookNotes: [],
+    },
+    {
+      id: 'mod_bwl',
+      courseKey: 'BWL',
+      title: 'Grundlagen der Betriebswirtschaftslehre',
+      short: 'BWL',
+      lecturer: 'Verhasselt',
+      room: '04.E.007 (AM)',
+      schedule: 'Do 15:00–17:45 (VL) · 18:00–18:45 (ÜB)',
+      ects: 5,
+      color: 'ochre',
+      toolType: 'bwl',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · BWL',
+      notebookNotes: [],
+    },
+    {
+      id: 'mod_markt',
+      courseKey: 'Marktanalyse',
+      title: 'Marktanalyse und -bearbeitung',
+      short: 'Marktanalyse',
+      lecturer: 'Schmengler',
+      room: '05.1.001 (EI)',
+      schedule: 'Mo 10:00–12:45 (VL) · 13:00–13:45 (ÜB)',
+      ects: 5,
+      color: 'plum',
+      toolType: 'markt',
+      moodleUrl: 'https://moodle.hs-duesseldorf.de',
+      notebookUrl: 'https://notebooklm.google.com/',
+      notebookLabel: 'NotebookLM · Marktanalyse',
+      notebookNotes: [
+        {
+          id: 'nn_markt_1',
+          title: 'Wöchentliche Abgabe',
+          content: 'Jeden Freitag bis 10:00 Uhr Aufgabe abgeben.',
+          updatedAt: today,
+        },
+      ],
+    },
+  ];
+}
+
 export function createDefaultState() {
   const today = isoDate();
-  const nextTue = nextWeekdayISO(1); // Dienstag (Mathe I Arbeitsblatt)
-  const nextFri = nextWeekdayISO(4); // Freitag (Marktanalyse Aufgabe)
-  const nextInfoTechSun = nextOccurrenceFromAnchor('2026-11-22', 14); // 22. Nov 2026, dann alle 14 Tage
+  const nextTue = nextWeekdayISO(1);
+  const nextFri = nextWeekdayISO(4);
+  const nextInfoTechSun = nextOccurrenceFromAnchor('2026-11-22', 14);
 
   return {
-    version: 2,
+    version: 3,
     profile: {
       university: 'Hochschule Düsseldorf (HSD)',
       degree: 'B.Eng. Wirtschaftsingenieurwesen Elektrotechnik',
@@ -138,7 +269,8 @@ export function createDefaultState() {
     },
     theme: 'light',
     google: {
-      clientId: '',
+      clientId: DEFAULT_GOOGLE_CLIENT_ID,
+      readOnlyMode: false,
       connected: false,
       userEmail: '',
       lastSync: null,
@@ -188,14 +320,14 @@ export function createDefaultState() {
         },
       },
     },
-    // Exakter Stundenplan aus davinci.ei.hs-duesseldorf.de (BEng-WIE-1, wöchentlich — ohne einmalige grüne Praktika)
+    modules: createDefaultModules(),
     timetable: [
       {
         id: 'tt_ma_vl',
         title: 'Marktanalyse und -bearbeitung',
         short: 'Marktanalyse',
         type: 'VL',
-        day: 0, // Mo
+        day: 0,
         start: '10:00',
         end: '12:45',
         room: '05.1.001 (EI)',
@@ -229,7 +361,7 @@ export function createDefaultState() {
         title: 'Grundlagen der Informationstechnik',
         short: 'Informationstechnik',
         type: 'VL',
-        day: 1, // Di
+        day: 1,
         start: '10:00',
         end: '11:45',
         room: '04.E.007 (AM)',
@@ -297,7 +429,7 @@ export function createDefaultState() {
         title: 'Grundlagen der Informatik I',
         short: 'Informatik I',
         type: 'VL',
-        day: 2, // Mi
+        day: 2,
         start: '08:00',
         end: '09:45',
         room: '04.E.007 (AM)',
@@ -331,7 +463,7 @@ export function createDefaultState() {
         title: 'Grundlagen der Betriebswirtschaftslehre',
         short: 'BWL',
         type: 'VL',
-        day: 3, // Do
+        day: 3,
         start: '15:00',
         end: '17:45',
         room: '04.E.007 (AM)',
@@ -365,7 +497,7 @@ export function createDefaultState() {
         title: 'Grundlagen der Elektrotechnik I für WIE',
         short: 'GET I',
         type: 'VL',
-        day: 4, // Fr
+        day: 4,
         start: '12:00',
         end: '13:45',
         room: '05.1.001 (EI)',
@@ -395,9 +527,7 @@ export function createDefaultState() {
         maxAbsences: null,
       },
     ],
-    // Manuelle Studia-Klausuren (leer im Standard, weil Klausuren direkt aus Google Kalender erkannt werden!)
     exams: [],
-    // Demo-Termine (werden automatisch durch echte Google-Kalender-Termine ersetzt, sobald Google verbunden ist)
     calendarEvents: [
       {
         id: 'ev_g_ex_get',
@@ -406,7 +536,7 @@ export function createDefaultState() {
         start: '09:00',
         end: '11:00',
         location: 'HSD · Gebäude 05 (Hörsaal)',
-        notes: 'Beispiel-Termin aus Google Kalender — nach Google-Login erscheinen hier deine echten Klausuren.',
+        notes: 'Beispiel-Termin — nach Google-Login erscheinen hier deine echten Klausuren.',
         source: 'google-demo',
         calendarName: 'Google Kalender (Beispiel)',
         color: 'google',
@@ -449,7 +579,6 @@ export function createDefaultState() {
       },
     ],
     googleEvents: [],
-    // Echte wiederkehrende Abgaben + einmalige Aufgaben
     tasks: [
       {
         id: 'tk_it_biweekly',
@@ -457,7 +586,7 @@ export function createDefaultState() {
         course: 'Informationstechnik',
         due: nextInfoTechSun,
         dueTime: '23:59',
-        recurrence: 'biweekly', // once | weekly | biweekly
+        recurrence: 'biweekly',
         recurrenceLabel: 'Alle 2 Wochen · So 24:00',
         streak: 0,
         lastCompleted: null,
@@ -488,7 +617,6 @@ export function createDefaultState() {
         done: false,
       },
     ],
-    // Erstsemester: noch 0 abgeschlossene Noten + 6 laufende 1.-Semester-Module für den Zielnoten-Planer
     grades: [],
     semesterPlan: [
       { id: 'sp_1', title: 'Grundlagen der Elektrotechnik I', ects: 5, targetGrade: 2.0 },
@@ -498,20 +626,19 @@ export function createDefaultState() {
       { id: 'sp_5', title: 'Grundlagen der BWL', ects: 5, targetGrade: 1.7 },
       { id: 'sp_6', title: 'Marktanalyse und -bearbeitung', ects: 5, targetGrade: 1.7 },
     ],
-    // Mini-Karteikarten für unterwegs auf dem Pixel 8 (1. Semester WIE)
     flashcards: [
       {
         id: 'fc_1',
         course: 'BWL',
         front: 'Was ist der Unterschied zwischen Ökonomischem Minimal- und Maximalprinzip?',
         back: 'Minimalprinzip: Ein festes Ziel mit möglichst geringem Mitteleinsatz erreichen.\nMaximalprinzip: Mit gegebenen Mitteln den größtmöglichen Erfolg erzielen.',
-        box: 1, // 1=Neu, 2=Üben, 3=Sicher
+        box: 1,
       },
       {
         id: 'fc_2',
         course: 'BWL',
         front: 'Wie berechnet sich der Stückdeckungsbeitrag (db) und die Break-Even-Menge?',
-        back: 'db = Verkaufspreis (p) − variable Stückkosten (kv)\nBreak-Even-Menge: x_BE = Fixkosten (Kf) / db',
+        back: 'db = Verkaufspreis (p) − variable Stückkosten (kᵥ)\nBreak-Even-Menge: x_BE = Fixkosten (K_f) / db',
         box: 1,
       },
       {
@@ -532,21 +659,21 @@ export function createDefaultState() {
         id: 'fc_5',
         course: 'GET I',
         front: 'Wie lauten die 1. und 2. Kirchhoffsche Regel (Knoten- & Maschenregel)?',
-        back: 'Knotenregel: Die Summe aller zufließenden Ströme in einem Knoten ist gleich der Summe der abfließenden Ströme (Σ I = 0).\nMaschenregel: Die Summe aller Spannungen in einer geschlossenen Masche ist Null (Σ U = 0).',
+        back: 'Knotenregel: Σ I = 0 (Summe zufließender = abfließender Ströme im Knoten).\nMaschenregel: Σ U = 0 (Summe aller Spannungen in einer geschlossenen Masche ist Null).',
         box: 1,
       },
       {
         id: 'fc_6',
         course: 'GET I',
         front: 'Wie lautet die Formel für den unbelasteten Spannungsteiler (R₁ und R₂ in Reihe)?',
-        back: 'U₂ = U_ges · R₂ / (R₁ + R₂)\nMerke: An dem größeren Widerstand fällt die größere Spannung ab.',
+        back: 'U₂ = U_ges · R₂ / (R₁ + R₂)\nMerke: Am größeren Widerstand fällt die größere Spannung ab.',
         box: 1,
       },
       {
         id: 'fc_7',
         course: 'GET I',
         front: 'Wie verhalten sich Widerstände vs. Kondensatoren in Reihen- und Parallelschaltung?',
-        back: 'Widerstände: Reihe addiert sich (R₁+R₂), Parallel über Kehrwerte (1/R = 1/R₁ + 1/R₂).\nKondensatoren genau umgekehrt: Parallel addiert sich (C₁+C₂), Reihe über Kehrwerte!',
+        back: 'Widerstände: Reihe addiert sich (R₁+R₂), Parallel über Kehrwerte.\nKondensatoren genau umgekehrt: Parallel addiert sich (C₁+C₂), Reihe über Kehrwerte!',
         box: 1,
       },
       {
@@ -567,7 +694,21 @@ export function createDefaultState() {
         id: 'fc_10',
         course: 'Mathe I',
         front: 'Wie rechnet man eine komplexe Zahl z = a + j·b in die Polarform r · e^(jφ) um?',
-        back: 'Betrag: r = √(a² + b²)\nWinkel: φ = arctan(b / a) — dabei den Quadranten beachten (bei a < 0 gilt +π bzw. +180°)!',
+        back: 'Betrag: r = √(a² + b²)\nWinkel: φ = arctan(b / a) — dabei den Quadranten beachten (bei a < 0 gilt +180° bzw. +π)!',
+        box: 1,
+      },
+      {
+        id: 'fc_11',
+        course: 'Informatik I',
+        front: 'Was ist der Unterschied zwischen Call-by-Value und Call-by-Reference?',
+        back: 'Call-by-Value: Eine Kopie des Wertes wird übergeben — Änderungen wirken sich nicht auf das Original aus.\nCall-by-Reference: Eine Referenz/Adresse wird übergeben — Änderungen verändern direkt das Original.',
+        box: 1,
+      },
+      {
+        id: 'fc_12',
+        course: 'Informatik I',
+        front: 'Wann nutzt man eine while-Schleife vs. eine for-Schleife?',
+        back: 'for-Schleife: Wenn die Anzahl der Durchläufe vorher bekannt ist (Zählschleife).\nwhile-Schleife: Wenn solange wiederholt wird, bis eine Bedingung nicht mehr erfüllt ist.',
         box: 1,
       },
     ],
@@ -578,13 +719,6 @@ export function createDefaultState() {
     notes: [
       {
         id: 'nt_1',
-        title: 'Abgabe-Rhythmus im Überblick',
-        course: 'Orga',
-        content: '• Marktanalyse: jeden Freitag 10:00 Uhr\n• Informationstechnik (Machmerth): alle 2 Wochen Sonntag 24:00 Uhr (22. Nov., 6. Dez., …)\n• Mathe I: jede Woche bis Dienstag 12:00 Uhr zur Übung',
-        updatedAt: today,
-      },
-      {
-        id: 'nt_2',
         title: 'Campus Derendorf — Gebäude-Kürzel',
         course: 'HSD',
         content: '• 04.E.007 (AM) = Gebäude 4, Erdgeschoss (Audimax / Hörsaal)\n• 05.1.001 (EI) = Gebäude 5 (Elektrotechnik), 1. OG\n• 05.2.055 = Gebäude 5, 2. OG (GET I Praktikums-Labor)',
@@ -615,6 +749,12 @@ export function createDefaultState() {
         label: 'Mensa Campus Derendorf',
         sub: 'Tagesmenü STW Düsseldorf',
         url: 'https://www.stw-d.de/gastronomie/speiseplaene/mensa-campus-derendorf/',
+      },
+      {
+        id: 'ql_notebooklm',
+        label: 'Google NotebookLM',
+        sub: 'Alle deine Uni-Notebooks öffnen',
+        url: 'https://notebooklm.google.com/',
       },
       {
         id: 'ql_gcal',
