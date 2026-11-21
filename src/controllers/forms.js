@@ -198,14 +198,13 @@ export function createFormHandler({ ui, render, showToast }) {
         store.update((s) => {
           const m = (s.modules || []).find((x) => x.id === mod.id);
           if (!m) return;
-          if (link.includes('moodle')) m.moodleUrl = link;
+          if (link.includes('moodle') || link.includes('mdl.hs-duesseldorf.de')) m.moodleUrl = link;
           else {
             m.notebookUrl = link;
             m.notebookLabel = title || `NotebookLM · ${m.short}`;
           }
         });
-        ui.tab = 'toolkit';
-        ui.toolkitSub = 'modules';
+        ui.tab = 'modules';
         ui.selectedModuleId = mod.id;
         ui.modal = null;
         showToast(`Link in ${mod.short} gespeichert!`);
@@ -232,8 +231,7 @@ export function createFormHandler({ ui, render, showToast }) {
         store.update((s) => {
           s.flashcards = [...parsed, ...(s.flashcards || [])];
         });
-        ui.tab = 'toolkit';
-        ui.toolkitSub = 'modules';
+        ui.tab = 'modules';
         ui.selectedModuleId = mod.id;
         ui.cardDueOnly = true;
         ui.cardIndex = 0;
@@ -259,8 +257,8 @@ export function createFormHandler({ ui, render, showToast }) {
             done: false,
           });
         });
-        ui.tab = 'toolkit';
-        ui.toolkitSub = 'tasks';
+        ui.tab = 'today';
+        ui.todaySub = 'tasks';
         ui.modal = null;
         showToast('Geteilte Aufgabe angelegt!');
         render();
@@ -280,8 +278,7 @@ export function createFormHandler({ ui, render, showToast }) {
             updatedAt: isoDate(),
           });
         });
-        ui.tab = 'toolkit';
-        ui.toolkitSub = 'modules';
+        ui.tab = 'modules';
         ui.selectedModuleId = mod.id;
         ui.modal = null;
         showToast(`Geteilte Info in ${mod.short} gespeichert!`);

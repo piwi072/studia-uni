@@ -2167,6 +2167,57 @@ a {
   }
 }
 
+/* Bonus-Klausurpunkte (Mathe I 1:1 & BWL 10er-Brackets) */
+.bonus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.bonus-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+}
+
+.bonus-score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.bonus-big-num {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--accent-primary);
+  letter-spacing: -0.03em;
+}
+
+.bonus-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.bonus-inline-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+}
+
 @media (max-width: 719px) {
   .sidebar-rail {
     display: none;
@@ -2180,7 +2231,8 @@ a {
   .calendar-layout,
   .toolkit-grid,
   .exam-grid,
-  .calc-grid {
+  .calc-grid,
+  .bonus-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2258,17 +2310,17 @@ a {
     align-items: stretch;
   }
 
-  /* Pixel 8 Material 3 Bottom Navigation */
+  /* Pixel 8 Material 3 Bottom Navigation (6 direct tabs) */
   .mobile-bottom-nav {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     background: var(--bg-surface);
     border-top: 1px solid var(--border-subtle);
-    padding: 6px 6px calc(8px + var(--safe-bottom));
+    padding: 5px 4px calc(7px + var(--safe-bottom));
     z-index: 40;
     box-shadow: 0 -4px 20px rgba(26, 34, 29, 0.06);
   }
@@ -2278,17 +2330,18 @@ a {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
-    padding: 4px 2px;
+    gap: 2px;
+    padding: 3px 1px;
     color: var(--ink-muted);
-    font-size: 0.7rem;
+    font-size: 0.63rem;
     font-weight: 600;
-    min-height: 52px;
+    min-height: 50px;
+    min-width: 0;
   }
 
   .m-nav-pill {
-    width: 52px;
-    height: 30px;
+    width: 44px;
+    height: 28px;
     border-radius: var(--radius-pill);
     display: flex;
     align-items: center;

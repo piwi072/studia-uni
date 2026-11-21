@@ -92,7 +92,7 @@ export function renderTimetableView(state, ui) {
 
       <div class="flex-row">
         ${hasParitySpecific ? `<span class="badge badge-sage mono">${totalEctsThisTerm} ECTS</span>` : ''}
-        <a class="btn btn-ghost btn-sm" href="https://davinci.ei.hs-duesseldorf.de" target="_blank" rel="noopener noreferrer">
+        <a class="btn btn-ghost btn-sm" href="https://davinci.ei.hs-duesseldorf.de/davinciIS.dll?type=class" target="_blank" rel="noopener noreferrer">
           DaVinci EI ${ICONS.external}
         </a>
         <button class="btn btn-ghost btn-sm" data-action="toggle-timetable-layout">

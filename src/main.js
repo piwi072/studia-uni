@@ -27,21 +27,40 @@ import {
 } from './services/personalBridge.js';
 import { getUnifiedExams, store } from './state/store.js';
 import { esc, vibrate } from './utils/html.js';
+import { getLeitnerStats } from './utils/spacedRepetition.js';
 import { renderCalendarView } from './views/calendarView.js';
 import { renderExamsView } from './views/examsView.js';
 import { renderTimetableView } from './views/timetableView.js';
 import { renderTodayView } from './views/todayView.js';
-import { renderToolkitView } from './views/toolkitView.js';
+import { renderFocusView, renderModulesView } from './views/toolkitView.js';
 
 // Handle 1-tap Magic Pairing Link (#bridge=...) before anything else!
 const pairedBridge = consumeBridgePairingHash();
 
 const params = new URLSearchParams(window.location.search);
-const initialTab = ['today', 'timetable', 'calendar', 'exams', 'toolkit'].includes(
-  params.get('tab')
-)
-  ? params.get('tab')
-  : 'today';
+const rawTab = params.get('tab');
+const rawSub = params.get('sub');
+let initialTab = 'today';
+let initialTodaySub = 'overview';
+let initialExamsSub = 'exams';
+
+if (['today', 'timetable', 'calendar', 'exams', 'modules', 'focus'].includes(rawTab)) {
+  initialTab = rawTab;
+  if (rawTab === 'today' && rawSub === 'tasks') initialTodaySub = 'tasks';
+  if (rawTab === 'exams' && rawSub === 'grades') initialExamsSub = 'grades';
+} else if (rawTab === 'toolkit') {
+  // Backwards compatibility for older shortcuts/links
+  if (rawSub === 'focus') initialTab = 'focus';
+  else if (rawSub === 'tasks') {
+    initialTab = 'today';
+    initialTodaySub = 'tasks';
+  } else if (rawSub === 'grades') {
+    initialTab = 'exams';
+    initialExamsSub = 'grades';
+  } else {
+    initialTab = 'modules';
+  }
+}
 
 const sharedTitle = params.get('share_title') || '';
 const sharedText = params.get('share_text') || '';
@@ -54,9 +73,8 @@ if (hasIncomingShare) {
 
 const ui = {
   tab: initialTab,
-  toolkitSub: ['modules', 'tasks', 'focus', 'grades'].includes(params.get('sub'))
-    ? params.get('sub')
-    : 'modules',
+  todaySub: initialTodaySub,
+  examsSub: initialExamsSub,
   selectedModuleId: 'mod_get',
   weekParityFilter: 'all',
   timetableLayout: null,
@@ -144,14 +162,12 @@ function render(preserveFocusId = null) {
   const state = store.state;
   applyTheme(state.theme);
 
-  const routeKey = `${ui.tab}:${ui.tab === 'toolkit' ? ui.toolkitSub : ''}`;
+  const routeKey = `${ui.tab}:${ui.tab === 'today' ? ui.todaySub : ui.tab === 'exams' ? ui.examsSub : ''}`;
   const shouldAnimate = routeKey !== lastRenderedRoute;
   lastRenderedRoute = routeKey;
 
-  const openTasksCount = (state.tasks || []).filter(
-    (t) => !t.done || t.recurrence === 'weekly' || t.recurrence === 'biweekly'
-  ).length;
   const upcomingExamsCount = getUnifiedExams(state).filter((e) => !e.completed).length;
+  const dueCardsCount = getLeitnerStats(state.flashcards || [], null, isoDate()).dueCount;
   const timerSnap = focusTimer.getSnapshot();
   const driveStatus = getDriveSyncStatus();
   const bridgeActive = isPersonalBridgeConfigured();
@@ -159,11 +175,12 @@ function render(preserveFocusId = null) {
   const sidebarCollapsed = Boolean(state.sidebarCollapsed);
 
   let mainContent = '';
-  if (ui.tab === 'today') mainContent = renderTodayView(state);
+  if (ui.tab === 'today') mainContent = renderTodayView(state, ui);
   else if (ui.tab === 'timetable') mainContent = renderTimetableView(state, ui);
   else if (ui.tab === 'calendar') mainContent = renderCalendarView(state, ui);
   else if (ui.tab === 'exams') mainContent = renderExamsView(state, ui);
-  else mainContent = renderToolkitView(state, ui);
+  else if (ui.tab === 'modules') mainContent = renderModulesView(state, ui);
+  else mainContent = renderFocusView(state, ui);
 
   const installBannerHtml =
     ui.installPromptEvent && !ui.installBannerDismissed
@@ -232,7 +249,7 @@ function render(preserveFocusId = null) {
         </div>
 
         <nav class="rail-nav">
-          <button class="rail-nav-btn ${ui.tab === 'today' ? 'active' : ''}" data-nav="today" title="Heute">
+          <button class="rail-nav-btn ${ui.tab === 'today' ? 'active' : ''}" data-nav="today" title="Heute & Abgaben">
             ${ICONS.today} <span class="rail-label">Heute</span>
           </button>
           <button class="rail-nav-btn ${ui.tab === 'timetable' ? 'active' : ''}" data-nav="timetable" title="Stundenplan">
@@ -241,18 +258,21 @@ function render(preserveFocusId = null) {
           <button class="rail-nav-btn ${ui.tab === 'calendar' ? 'active' : ''}" data-nav="calendar" title="Kalender">
             ${ICONS.calendar} <span class="rail-label">Kalender</span>
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'exams' ? 'active' : ''}" data-nav="exams" title="Klausuren (${upcomingExamsCount})">
+          <button class="rail-nav-btn ${ui.tab === 'exams' ? 'active' : ''}" data-nav="exams" title="Klausuren & Noten (${upcomingExamsCount})">
             ${ICONS.exams} <span class="rail-label">Klausuren</span>
             ${upcomingExamsCount > 0 ? `<span class="nav-badge">${upcomingExamsCount}</span>` : ''}
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'toolkit' ? 'active' : ''}" data-nav="toolkit" title="Studium (${openTasksCount})">
-            ${ICONS.toolkit} <span class="rail-label">Studium</span>
-            ${openTasksCount > 0 ? `<span class="nav-badge">${openTasksCount}</span>` : ''}
+          <button class="rail-nav-btn ${ui.tab === 'modules' ? 'active' : ''}" data-nav="modules" title="Module & Karteikarten (${dueCardsCount} fällig)">
+            ${ICONS.toolkit} <span class="rail-label">Module</span>
+            ${dueCardsCount > 0 ? `<span class="nav-badge">${dueCardsCount}</span>` : ''}
+          </button>
+          <button class="rail-nav-btn ${ui.tab === 'focus' ? 'active' : ''}" data-nav="focus" title="Bib-Fokus">
+            ${ICONS.focus} <span class="rail-label">Bib-Fokus</span>
           </button>
         </nav>
 
         <div class="rail-footer">
-          <button class="mini-timer-pill ${timerSnap.running ? 'running' : ''}" data-nav="toolkit" data-sub="focus" title="Bib-Fokus (${formatMMSS(timerSnap.remainingSeconds)})">
+          <button class="mini-timer-pill ${timerSnap.running ? 'running' : ''}" data-nav="focus" title="Bib-Fokus (${formatMMSS(timerSnap.remainingSeconds)})">
             <span class="flex-row" style="gap:7px;">
               ${ICONS.clock}
               <span class="mini-timer-label">${timerSnap.running ? esc(timerSnap.subject) : 'Bib-Fokus'}</span>
@@ -291,7 +311,7 @@ function render(preserveFocusId = null) {
         <div class="mobile-topbar-right">
           ${
             timerSnap.running
-              ? `<button class="btn btn-soft btn-sm mono" data-nav="toolkit" data-sub="focus" id="mobile-timer-pill">${formatMMSS(timerSnap.remainingSeconds)}</button>`
+              ? `<button class="btn btn-soft btn-sm mono" data-nav="focus" id="mobile-timer-pill">${formatMMSS(timerSnap.remainingSeconds)}</button>`
               : ''
           }
           <button class="icon-btn" data-action="toggle-theme" aria-label="Design wechseln">
@@ -327,9 +347,13 @@ function render(preserveFocusId = null) {
           <span class="m-nav-pill">${ICONS.exams}</span>
           <span>Klausuren</span>
         </button>
-        <button class="m-nav-btn ${ui.tab === 'toolkit' ? 'active' : ''}" data-nav="toolkit">
+        <button class="m-nav-btn ${ui.tab === 'modules' ? 'active' : ''}" data-nav="modules">
           <span class="m-nav-pill">${ICONS.toolkit}</span>
-          <span>Studium</span>
+          <span>Module</span>
+        </button>
+        <button class="m-nav-btn ${ui.tab === 'focus' ? 'active' : ''}" data-nav="focus">
+          <span class="m-nav-pill">${ICONS.focus}</span>
+          <span>Fokus</span>
         </button>
       </nav>
     </div>

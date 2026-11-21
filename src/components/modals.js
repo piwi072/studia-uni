@@ -156,7 +156,7 @@ export function renderModal(state, modalState, ui = {}) {
         </div>
         <div class="field">
           <label for="f-moodle-url">Moodle-Kurslink (optional)</label>
-          <input id="f-moodle-url" name="moodleUrl" type="url" class="input mono" style="font-size:0.82rem;" value="${esc(mod.moodleUrl || '')}" placeholder="https://moodle.hs-duesseldorf.de/course/..." />
+          <input id="f-moodle-url" name="moodleUrl" type="url" class="input mono" style="font-size:0.82rem;" value="${esc(mod.moodleUrl || '')}" placeholder="https://mdl.hs-duesseldorf.de/course/..." />
         </div>
       </form>
     `;

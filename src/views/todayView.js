@@ -23,14 +23,16 @@ import { esc } from '../utils/html.js';
 import { getSemesterBannerInfo } from '../utils/semester.js';
 import { getLeitnerStats } from '../utils/spacedRepetition.js';
 import { computeStudyAnalytics } from '../utils/studyStats.js';
+import { renderTasksSection } from './toolkitView.js';
 
-export function renderTodayView(state) {
+export function renderTodayView(state, ui = {}) {
   const now = new Date();
   const todayIso = isoDate(now);
   const monIdx = getMondayIndex(now);
   const kw = getISOWeek(now);
   const kwParity = kw % 2 === 0 ? 'even' : 'odd';
   const nowMins = now.getHours() * 60 + now.getMinutes();
+  const todaySub = ui.todaySub === 'tasks' ? 'tasks' : 'overview';
 
   const dateHeading = `${WEEKDAYS_FULL[monIdx]}, ${now.getDate()}. ${MONTHS_DE[now.getMonth()]}`;
   const semInfo = getSemesterBannerInfo(todayIso, state.semesterConfig);
@@ -171,7 +173,7 @@ export function renderTodayView(state) {
     <header class="page-header">
       <div>
         <div class="page-eyebrow">${esc(dateHeading)} · KW ${kw} · ${esc(semCountdownTxt)}</div>
-        <h1 class="page-title">Guten Studientag</h1>
+        <h1 class="page-title">${todaySub === 'tasks' ? 'Abgaben & Aufgaben' : 'Guten Studientag'}</h1>
       </div>
       <div class="page-actions">
         <button class="btn btn-secondary" data-action="open-modal" data-modal="task">
@@ -183,6 +185,21 @@ export function renderTodayView(state) {
       </div>
     </header>
 
+    <div class="timetable-toolbar">
+      <div class="segmented-bar" role="tablist" aria-label="Heute & Abgaben">
+        <button class="segment-btn ${todaySub === 'overview' ? 'active' : ''}" data-action="set-today-sub" data-value="overview">
+          Übersicht
+        </button>
+        <button class="segment-btn ${todaySub === 'tasks' ? 'active' : ''}" data-action="set-today-sub" data-value="tasks">
+          Abgaben (${openTasks.length})
+        </button>
+      </div>
+    </div>
+
+    ${
+      todaySub === 'tasks'
+        ? renderTasksSection(state)
+        : `
     ${
       needsGoogleRefresh
         ? `<div class="semester-strip mb-md">
@@ -200,7 +217,7 @@ export function renderTodayView(state) {
             <div class="text-xs">
               <strong>Prüfungsanmeldung HSD (eCampus):</strong> Läuft noch bis <strong>${formatShortDateDE(semInfo.config.examRegEnd)} (12:00 Uhr)</strong> — alle 1.-Semester-Klausuren angemeldet?
             </div>
-            <a class="btn btn-secondary btn-sm" href="https://ossc.hs-duesseldorf.de" target="_blank" rel="noopener noreferrer">OSSC öffnen ${ICONS.external}</a>
+            <a class="btn btn-secondary btn-sm" href="https://ecampus.hs-duesseldorf.de/" target="_blank" rel="noopener noreferrer">eCampus öffnen ${ICONS.external}</a>
           </div>`
         : ''
     }
@@ -220,7 +237,7 @@ export function renderTodayView(state) {
     </section>
 
     <section class="stats-strip" aria-label="Studien-Kennzahlen">
-      <div class="stat-tile">
+      <div class="stat-tile" style="cursor:pointer;" data-action="set-today-sub" data-value="tasks">
         <div class="stat-label">Nächste Abgabe</div>
         <div class="stat-value">${nextTask ? (nextTaskDays <= 0 ? 'Heute' : nextTaskDays === 1 ? 'Morgen' : `${nextTaskDays} Tage`) : '–'}</div>
         <div class="stat-sub">${nextTask ? `${esc(nextTask.course)} · ${nextTask.dueTime === '23:59' ? '24:00' : esc(nextTask.dueTime || '')}` : 'Alles erledigt'}</div>
@@ -230,12 +247,12 @@ export function renderTodayView(state) {
         <div class="stat-value" style="color:${cardStats.dueCount > 0 ? 'var(--accent-primary)' : 'var(--status-success)'};">${cardStats.dueCount}</div>
         <div class="stat-sub">${cardStats.masteredCount}/${cardStats.total} sicher (Fach 4–5)</div>
       </div>
-      <div class="stat-tile" style="cursor:pointer;" data-nav="toolkit" data-sub="focus">
+      <div class="stat-tile" style="cursor:pointer;" data-nav="focus">
         <div class="stat-label">Wochenziel · Streak</div>
         <div class="stat-value">${studyStats.weekGoalPct}%</div>
         <div class="stat-sub">${(studyStats.weekMinutes / 60).toFixed(1).replace('.', ',')}/${(studyStats.weeklyGoalMin / 60).toFixed(0)} Std. · ${studyStats.streak.current} T. Streak</div>
       </div>
-      <div class="stat-tile">
+      <div class="stat-tile" style="cursor:pointer;" data-nav="exams">
         <div class="stat-label">${nextExam ? 'Nächste Klausur' : gpaStats.gpa ? 'Notenschnitt' : 'Semester'}</div>
         <div class="stat-value">${nextExam ? (nextExamDays <= 0 ? 'Heute' : `${nextExamDays} Tage`) : gpaStats.gpa ? formatGradeDE(gpaStats.gpa) : `${semInfo.weeksLeft} Wo.`}</div>
         <div class="stat-sub">${nextExam ? esc(nextExam.title) : semInfo.nextHoliday ? `Ferien ab ${formatShortDateDE(semInfo.nextHoliday.start)}` : esc(semInfo.status.label)}</div>
@@ -261,7 +278,7 @@ export function renderTodayView(state) {
         <section class="card">
           <div class="section-head">
             <h2 class="section-title">Anstehende Abgaben & Pflichtaufgaben</h2>
-            <button class="section-link" data-nav="toolkit" data-sub="tasks">Alle verwalten →</button>
+            <button class="section-link" data-action="set-today-sub" data-value="tasks">Alle verwalten →</button>
           </div>
           ${
             openTasks.length === 0
@@ -364,7 +381,7 @@ export function renderTodayView(state) {
         <section class="card">
           <div class="section-head">
             <h2 class="section-title">HSD Campus Schnellzugriff</h2>
-            <button class="section-link" data-nav="toolkit" data-sub="grades">Alle Links →</button>
+            <button class="section-link" data-nav="exams" data-sub="grades">Alle Links →</button>
           </div>
           <div class="quicklinks-grid">
             ${(state.quickLinks || [])
@@ -384,6 +401,8 @@ export function renderTodayView(state) {
         </section>
       </div>
     </div>
+    `
+    }
   `;
 }
 

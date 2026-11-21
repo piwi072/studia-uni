@@ -20,6 +20,11 @@ import {
   formatGradeDE,
   formatSingleGradeDE,
 } from '../state/store.js';
+import {
+  computeBwlBonus,
+  computeMatheBonus,
+  normalizeBonusPoints,
+} from '../utils/bonusPoints.js';
 import { esc } from '../utils/html.js';
 import { findHolidayForDate, nextLectureOccurrence } from '../utils/semester.js';
 import {
@@ -32,61 +37,11 @@ import {
 import { computeStudyAnalytics } from '../utils/studyStats.js';
 import { renderTaskRow } from './todayView.js';
 
-export function renderToolkitView(state, ui) {
-  const sub = ui.toolkitSub || 'modules'; // 'modules' | 'tasks' | 'focus' | 'grades'
-
-  return `
-    <header class="page-header">
-      <div>
-        <div class="page-eyebrow">Deine WIE-Werkzeuge · 1. Semester</div>
-        <h1 class="page-title">Studium</h1>
-      </div>
-      <div class="page-actions">
-        ${
-          sub === 'tasks'
-            ? `<button class="btn btn-primary" data-action="open-modal" data-modal="task">${ICONS.plus} Abgabe / Aufgabe</button>`
-            : sub === 'grades'
-              ? `<button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="note">${ICONS.plus} Notiz</button>
-                 <button class="btn btn-primary" data-action="open-modal" data-modal="grade">${ICONS.plus} Note</button>`
-              : ''
-        }
-      </div>
-    </header>
-
-    <div class="timetable-toolbar">
-      <div class="segmented-bar" role="tablist" aria-label="Studien-Bereiche">
-        <button class="segment-btn ${sub === 'modules' ? 'active' : ''}" data-action="set-toolkit-sub" data-value="modules">
-          Module
-        </button>
-        <button class="segment-btn ${sub === 'tasks' ? 'active' : ''}" data-action="set-toolkit-sub" data-value="tasks">
-          Abgaben
-        </button>
-        <button class="segment-btn ${sub === 'focus' ? 'active' : ''}" data-action="set-toolkit-sub" data-value="focus">
-          Bib-Fokus
-        </button>
-        <button class="segment-btn ${sub === 'grades' ? 'active' : ''}" data-action="set-toolkit-sub" data-value="grades">
-          Noten & HSD
-        </button>
-      </div>
-    </div>
-
-    ${
-      sub === 'modules'
-        ? renderModulesTab(state, ui)
-        : sub === 'tasks'
-          ? renderTasksTab(state)
-          : sub === 'focus'
-            ? renderFocusTab(state, ui)
-            : renderGradesAndCampusTab(state)
-    }
-  `;
-}
-
 /* ==========================================================================
-   SUB-TAB 1: MODULE (Alle 6 Fächer vereint: NotebookLM, Infos, 5-Fächer
+   STANDALONE VIEW: MODULE (Alle 6 Fächer vereint: NotebookLM, Infos, 5-Fächer
    Spaced-Repetition Karteikarten, Gemini KI-Tutor, fachspezifische Rechner)
    ========================================================================== */
-function renderModulesTab(state, ui) {
+export function renderModulesView(state, ui) {
   const todayIso = isoDate();
   const modules = state.modules || [];
   const activeId = modules.some((m) => m.id === ui.selectedModuleId)
@@ -96,6 +51,7 @@ function renderModulesTab(state, ui) {
   if (!mod) return `<div class="card empty-state"><strong>Keine Module vorhanden</strong></div>`;
 
   const col = COURSE_COLORS[mod.color] || COURSE_COLORS.sage;
+  const totalDueAll = getLeitnerStats(state.flashcards || [], null, todayIso).dueCount;
 
   // Spaced Repetition (5-box Leitner)
   const leitnerStats = getLeitnerStats(state.flashcards || [], mod.courseKey, todayIso);
@@ -127,7 +83,25 @@ function renderModulesTab(state, ui) {
     mod.notebookUrl !== 'https://notebooklm.google.com/' &&
     mod.notebookUrl !== 'https://notebooklm.google.com';
 
+  const bonus = normalizeBonusPoints(state.bonusPoints);
+  const inlineBonusHtml = renderModuleInlineBonus(mod.id, bonus);
+
   return `
+    <header class="page-header">
+      <div>
+        <div class="page-eyebrow">${modules.length} Module · ${totalDueAll} Karten heute fällig · Gemini 4 Neon Tutor</div>
+        <h1 class="page-title">Module</h1>
+      </div>
+      <div class="page-actions">
+        <a class="btn btn-secondary btn-sm" href="https://mdl.hs-duesseldorf.de/" target="_blank" rel="noopener noreferrer">
+          HSD Moodle ${ICONS.external}
+        </a>
+        <a class="btn btn-secondary btn-sm" href="https://ecampus.hs-duesseldorf.de/" target="_blank" rel="noopener noreferrer">
+          eCampus ${ICONS.external}
+        </a>
+      </div>
+    </header>
+
     <!-- 6-Module Switcher -->
     <div class="module-pill-grid" role="tablist" aria-label="Modul auswählen">
       ${modules
@@ -188,7 +162,7 @@ function renderModulesTab(state, ui) {
           </button>
           <a
             class="btn btn-ghost btn-sm"
-            href="${esc(mod.moodleUrl || 'https://moodle.hs-duesseldorf.de')}"
+            href="${esc(mod.moodleUrl || 'https://mdl.hs-duesseldorf.de/')}"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -203,6 +177,8 @@ function renderModulesTab(state, ui) {
           </button>
         </div>
       </div>
+
+      ${inlineBonusHtml}
 
       ${
         modTasks.length > 0
@@ -1031,10 +1007,47 @@ function fmtEng(num) {
   return Number(num.toPrecision(4)).toString().replace('.', ',');
 }
 
+function renderModuleInlineBonus(modId, bonusPoints) {
+  if (modId === 'mod_mathe') {
+    const m = computeMatheBonus(bonusPoints.mathe);
+    return `
+      <div class="bonus-inline-strip mt-md">
+        <div class="flex-row" style="gap:8px;">
+          <span class="badge badge-terracotta mono">${ICONS.award} Bonus: ${m.examPoints} KP</span>
+          <span class="text-xs text-secondary">Mathe I · 1 : 1 Klausurpunkte</span>
+        </div>
+        <div class="flex-row" style="gap:5px;">
+          <button class="btn btn-secondary btn-sm" data-action="adjust-bonus" data-subject="mathe" data-delta="-1" aria-label="Mathe Bonuspunkt minus 1">−1</button>
+          <button class="btn btn-primary btn-sm" data-action="adjust-bonus" data-subject="mathe" data-delta="1">+1 Punkt</button>
+        </div>
+      </div>
+    `;
+  }
+  if (modId === 'mod_bwl') {
+    const b = computeBwlBonus(bonusPoints.bwl);
+    return `
+      <div class="bonus-inline-strip mt-md">
+        <div class="flex-row" style="gap:8px; flex-wrap:wrap;">
+          <span class="badge badge-ochre mono">${ICONS.award} Bonus: ${b.examPoints} KP</span>
+          <span class="text-xs text-secondary">
+            <strong class="mono">${b.lecturePoints} VP</strong> · noch ${b.toNextBracket} VP bis ${b.nextExamPoints} KP
+          </span>
+        </div>
+        <div class="flex-row" style="gap:5px;">
+          <button class="btn btn-secondary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="-1" aria-label="BWL Vorlesungspunkt minus 1">−1</button>
+          <button class="btn btn-soft btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="4">+4 VL</button>
+          <button class="btn btn-primary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="8">+8 VL</button>
+        </div>
+      </div>
+    `;
+  }
+  return '';
+}
+
 /* ==========================================================================
-   SUB-TAB 2: ABGABEN (Feste Semester-Abgaben + Google-Serien + Einmalige)
+   ABGABEN-BEREICH (Eingebettet unter Heute -> Abgaben)
    ========================================================================== */
-function renderTasksTab(state) {
+export function renderTasksSection(state) {
   const now = new Date();
   const recurring = (state.tasks || [])
     .filter((t) => t.recurrence === 'weekly' || t.recurrence === 'biweekly')
@@ -1151,13 +1164,13 @@ function renderTasksTab(state) {
         <div class="section-head">
           <div>
             <h2 class="section-title">Einmalige Aufgaben</h2>
-            <div class="text-xs text-muted">z. B. Prüfungsanmeldung im OSSC, Praktikums-Vorbereitung</div>
+            <div class="text-xs text-muted">z. B. Prüfungsanmeldung im HSD eCampus, Praktikums-Vorbereitung</div>
           </div>
           <button class="section-link" data-action="open-modal" data-modal="task">+ Aufgabe</button>
         </div>
         ${
           oneOff.length === 0
-            ? `<div class="empty-state"><strong>Keine einmaligen Aufgaben offen</strong>Tippe oben auf „+ Abgabe / Aufgabe“.</div>`
+            ? `<div class="empty-state"><strong>Keine einmaligen Aufgaben offen</strong>Tippe oben auf „+ Abgabe“.</div>`
             : `<div class="task-list">${oneOff.map((t) => renderTaskRow(t, now)).join('')}</div>`
         }
       </section>
@@ -1166,9 +1179,9 @@ function renderTasksTab(state) {
 }
 
 /* ==========================================================================
-   SUB-TAB 3: BIB-FOKUS & LERNZEIT-STATISTIK PRO MODUL
+   STANDALONE VIEW: BIB-FOKUS & LERNZEIT-STATISTIK PRO MODUL
    ========================================================================== */
-function renderFocusTab(state, ui = {}) {
+export function renderFocusView(state, ui = {}) {
   const snap = focusTimer.getSnapshot();
   const radius = 104;
   const circumference = 2 * Math.PI * radius;
@@ -1194,6 +1207,20 @@ function renderFocusTab(state, ui = {}) {
   const goalHoursOptions = [5, 10, 15, 20];
 
   return `
+    <header class="page-header">
+      <div>
+        <div class="page-eyebrow">
+          Diese Woche: ${(stats.weekMinutes / 60).toFixed(1).replace('.', ',')} Std. · ${stats.streak.current} ${stats.streak.current === 1 ? 'Tag' : 'Tage'} Streak · Wochenziel ${stats.weekGoalPct}%
+        </div>
+        <h1 class="page-title">Bib-Fokus</h1>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" data-action="focus-wakelock">
+          ${ICONS.phone} Display wach: <strong>${snap.wakeLockEnabled ? 'AN' : 'AUS'}</strong>
+        </button>
+      </div>
+    </header>
+
     <div class="toolkit-grid">
       <section class="card focus-card" aria-label="Bib-Fokus-Timer">
         <div class="segmented-bar" role="tablist">
@@ -1361,9 +1388,9 @@ function renderFocusTab(state, ui = {}) {
 }
 
 /* ==========================================================================
-   SUB-TAB 4: NOTEN & HSD-CAMPUS
+   NOTEN, ZIELNOTEN-PLANER & HSD-LINKS (Eingebettet unter Klausuren -> Noten)
    ========================================================================== */
-function renderGradesAndCampusTab(state) {
+export function renderGradesAndCampusSection(state) {
   const stats = computeGpaStats(state.grades || [], state.profile.targetEcts);
   const plan = state.semesterPlan || [];
   const planStats = computeGpaStats(

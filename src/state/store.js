@@ -7,6 +7,7 @@ import {
   isoDate,
   timeToMinutes,
 } from '../data/defaults.js';
+import { normalizeBonusPoints } from '../utils/bonusPoints.js';
 import {
   adjustTaskDueForHolidays,
   expandRecurringTaskDates,
@@ -17,6 +18,58 @@ import { normalizeCard } from '../utils/spacedRepetition.js';
 export { addMinutesToTime, timeToMinutes };
 
 const STORAGE_KEY = 'studia_wie_state_v2';
+
+export function migrateHsdUrl(url) {
+  const s = String(url || '').trim();
+  if (!s) return s;
+  if (/^https?:\/\/moodle\.hs-duesseldorf\.de\/?$/i.test(s)) {
+    return 'https://mdl.hs-duesseldorf.de/';
+  }
+  if (/^https?:\/\/moodle\.hs-duesseldorf\.de\//i.test(s)) {
+    return s.replace(/^https?:\/\/moodle\.hs-duesseldorf\.de/i, 'https://mdl.hs-duesseldorf.de');
+  }
+  if (/^https?:\/\/ossc\.hs-duesseldorf\.de/i.test(s)) {
+    return 'https://ecampus.hs-duesseldorf.de/';
+  }
+  if (/^https?:\/\/davinci\.ei\.hs-duesseldorf\.de\/?$/i.test(s)) {
+    return 'https://davinci.ei.hs-duesseldorf.de/davinciIS.dll?type=class';
+  }
+  return s;
+}
+
+function migrateQuickLinks(links) {
+  if (!Array.isArray(links) || links.length === 0) return null;
+  const migrated = links.map((ql) => {
+    const nextUrl = migrateHsdUrl(ql.url);
+    const isOldOssc =
+      ql.id === 'ql_ossc' || /ossc\.hs-duesseldorf\.de/i.test(String(ql.url || ''));
+    if (isOldOssc) {
+      return {
+        ...ql,
+        label: 'HSD eCampus',
+        sub: 'Prüfungsanmeldung, Noten & Bescheinigungen',
+        url: 'https://ecampus.hs-duesseldorf.de/',
+      };
+    }
+    if (ql.id === 'ql_moodle' || /mdl\.hs-duesseldorf\.de/i.test(nextUrl)) {
+      return {
+        ...ql,
+        url: nextUrl,
+      };
+    }
+    return { ...ql, url: nextUrl };
+  });
+
+  // Ensure HSD Moodle & HSD eCampus sit first so the two most important links are immediately reachable
+  const moodleIdx = migrated.findIndex((l) => /mdl\.hs-duesseldorf\.de/i.test(l.url));
+  const ecampusIdx = migrated.findIndex((l) => /ecampus\.hs-duesseldorf\.de/i.test(l.url));
+  if (moodleIdx >= 0 && ecampusIdx > 1) {
+    const [ec] = migrated.splice(ecampusIdx, 1);
+    const insertAt = Math.min(moodleIdx + 1, migrated.length);
+    migrated.splice(insertAt, 0, ec);
+  }
+  return migrated;
+}
 
 function mergeWithDefaults(parsed, { keepConnection = true } = {}) {
   const fallback = createDefaultState();
@@ -53,21 +106,38 @@ function mergeWithDefaults(parsed, { keepConnection = true } = {}) {
     return t;
   });
 
+  const rawModules =
+    Array.isArray(parsed?.modules) && parsed.modules.length > 0
+      ? parsed.modules
+      : createDefaultModules();
+  const modules = rawModules.map((m) => ({
+    ...m,
+    moodleUrl: migrateHsdUrl(m.moodleUrl || 'https://mdl.hs-duesseldorf.de/'),
+  }));
+
+  const rawTimetable = Array.isArray(parsed?.timetable) ? parsed.timetable : fallback.timetable;
+  const timetable = rawTimetable.map((c) => ({
+    ...c,
+    link: migrateHsdUrl(c.link || ''),
+  }));
+
+  const quickLinks = migrateQuickLinks(parsed?.quickLinks) || fallback.quickLinks;
+
   return {
     ...fallback,
     ...(parsed || {}),
-    version: 4,
+    version: 5,
     updatedAt: parsed?.updatedAt || fallback.updatedAt,
     studyGoalWeeklyMin: Math.max(30, Number(parsed?.studyGoalWeeklyMin || fallback.studyGoalWeeklyMin || 600)),
+    bonusPoints: normalizeBonusPoints(parsed?.bonusPoints),
     semesterConfig,
     profile: { ...fallback.profile, ...(parsed?.profile || {}) },
     google: mergedGoogle,
-    modules:
-      Array.isArray(parsed?.modules) && parsed.modules.length > 0
-        ? parsed.modules
-        : createDefaultModules(),
+    modules,
+    timetable,
     tasks,
     flashcards,
+    quickLinks,
   };
 }
 
@@ -133,15 +203,16 @@ class StudiaStore {
   }
 
   /**
-   * Produces a portable JSON payload for Google Drive appDataFolder sync
+   * Produces a portable JSON payload for Google Drive / Dauer-Sync
    * (omits volatile Google Calendar cache, session tokens, and device-only Gemini API key).
    */
   getSyncPayload() {
     const s = this.state;
     return {
-      version: 4,
+      version: 5,
       updatedAt: s.updatedAt || new Date().toISOString(),
       studyGoalWeeklyMin: s.studyGoalWeeklyMin,
+      bonusPoints: normalizeBonusPoints(s.bonusPoints),
       semesterConfig: s.semesterConfig,
       profile: s.profile,
       theme: s.theme,

@@ -11,10 +11,18 @@ import {
   formatSingleGradeDE,
   getUnifiedExams,
 } from '../state/store.js';
+import {
+  computeBwlBonus,
+  computeMatheBonus,
+  getExamBonusBadge,
+  normalizeBonusPoints,
+} from '../utils/bonusPoints.js';
 import { esc } from '../utils/html.js';
+import { renderGradesAndCampusSection } from './toolkitView.js';
 
 export function renderExamsView(state, ui) {
   const now = new Date();
+  const examsSub = ui.examsSub === 'grades' ? 'grades' : 'exams';
   const filter = ui.examFilter || 'upcoming';
   const googleConnected = Boolean(state.google.connected || isPersonalBridgeConfigured());
 
@@ -34,24 +42,62 @@ export function renderExamsView(state, ui) {
       : 0;
 
   const keywordsStr = (state.google.examKeywords || []).slice(0, 4).join(', ');
+  const bonus = normalizeBonusPoints(state.bonusPoints);
 
   return `
     <header class="page-header">
       <div>
         <div class="page-eyebrow">${upcoming.length} Prüfungen · ${totalUpcomingEcts} ECTS · Ø ${avgReady}% vorbereitet</div>
-        <h1 class="page-title">Klausuren & Lernplan</h1>
+        <h1 class="page-title">${examsSub === 'grades' ? 'Noten, Schnitt & HSD-Links' : 'Klausuren & Noten'}</h1>
       </div>
       <div class="page-actions">
         ${
-          googleConnected
-            ? `<button class="btn btn-google btn-sm" data-action="sync-google-now">${ICONS.sync} Google Sync</button>`
-            : `<button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">${ICONS.google} Google verbinden</button>`
+          examsSub === 'grades'
+            ? `<button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="note">${ICONS.plus} Notiz</button>
+               <button class="btn btn-primary" data-action="open-modal" data-modal="grade">${ICONS.plus} Note</button>`
+            : `${
+                googleConnected
+                  ? `<button class="btn btn-google btn-sm" data-action="sync-google-now">${ICONS.sync} Google Sync</button>`
+                  : `<button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">${ICONS.google} Google verbinden</button>`
+              }
+              <button class="btn btn-primary" data-action="open-modal" data-modal="exam">
+                ${ICONS.plus} Klausur
+              </button>`
         }
-        <button class="btn btn-primary" data-action="open-modal" data-modal="exam">
-          ${ICONS.plus} Klausur
-        </button>
       </div>
     </header>
+
+    <div class="timetable-toolbar">
+      <div class="segmented-bar" role="tablist" aria-label="Klausuren und Noten">
+        <button class="segment-btn ${examsSub === 'exams' ? 'active' : ''}" data-action="set-exams-sub" data-value="exams">
+          Klausuren &amp; Bonus (${upcoming.length})
+        </button>
+        <button class="segment-btn ${examsSub === 'grades' ? 'active' : ''}" data-action="set-exams-sub" data-value="grades">
+          Noten &amp; Schnitt
+        </button>
+      </div>
+      ${
+        examsSub === 'exams' && upcoming.length > 0
+          ? `<div class="flex-row" style="gap:6px;">
+              <div class="segmented-bar" role="tablist">
+                <button class="segment-btn ${filter === 'upcoming' ? 'active' : ''}" data-action="set-exam-filter" data-value="upcoming">
+                  Anstehend (${upcoming.length})
+                </button>
+                <button class="segment-btn ${filter === 'completed' ? 'active' : ''}" data-action="set-exam-filter" data-value="completed">
+                  Geschrieben (${completed.length})
+                </button>
+              </div>
+              <button class="btn btn-ghost btn-sm" data-action="export-ics-exams">${ICONS.download} .ics</button>
+            </div>`
+          : ''
+      }
+    </div>
+
+    ${
+      examsSub === 'grades'
+        ? renderGradesAndCampusSection(state)
+        : `
+    ${renderBonusPointsCard(bonus)}
 
     <section class="google-banner" aria-label="Automatische Klausur-Erkennung">
       <div class="google-banner-info">
@@ -65,28 +111,12 @@ export function renderExamsView(state, ui) {
             }
           </div>
           <div class="text-xs text-secondary">
-            Erkennung aktiv für Schlagwörter (<code>${esc(keywordsStr)}</code>) + jeder Termin im Kalender lässt sich per 1 Klick als Klausur übernehmen. Lern-Checklisten & Hilfsmittel werden hier direkt drangehängt.
+            Erkennung aktiv für Schlagwörter (<code>${esc(keywordsStr)}</code>) + jeder Termin im Kalender lässt sich per 1 Klick als Klausur übernehmen. Lern-Checklisten &amp; Hilfsmittel werden hier direkt drangehängt.
           </div>
         </div>
       </div>
       <button class="btn btn-secondary btn-sm" data-nav="calendar">Im Kalender wählen</button>
     </section>
-
-    <div class="timetable-toolbar">
-      <div class="segmented-bar" role="tablist">
-        <button class="segment-btn ${filter === 'upcoming' ? 'active' : ''}" data-action="set-exam-filter" data-value="upcoming">
-          Anstehend (${upcoming.length})
-        </button>
-        <button class="segment-btn ${filter === 'completed' ? 'active' : ''}" data-action="set-exam-filter" data-value="completed">
-          Geschrieben (${completed.length})
-        </button>
-      </div>
-      ${
-        upcoming.length > 0
-          ? `<button class="btn btn-ghost btn-sm" data-action="export-ics-exams">${ICONS.download} .ics Export</button>`
-          : ''
-      }
-    </div>
 
     ${
       list.length === 0
@@ -99,13 +129,124 @@ export function renderExamsView(state, ui) {
             }
           </div>`
         : `<div class="exam-grid">
-            ${list.map((ex) => renderExamCard(ex, now, googleConnected)).join('')}
+            ${list.map((ex) => renderExamCard(ex, now, googleConnected, bonus)).join('')}
           </div>`
+    }
+    `
     }
   `;
 }
 
-function renderExamCard(ex, now, googleConnected) {
+export function renderBonusPointsCard(bonusPoints) {
+  const mathe = computeMatheBonus(bonusPoints.mathe);
+  const bwl = computeBwlBonus(bonusPoints.bwl);
+
+  return `
+    <section class="card mb-md" aria-label="Bonus-Klausurpunkte">
+      <div class="section-head" style="margin-bottom:12px;">
+        <div>
+          <h2 class="section-title" style="display:flex; align-items:center; gap:7px;">
+            ${ICONS.award} Bonus-Klausurpunkte
+          </h2>
+          <div class="text-xs text-muted">Mathe I (1 : 1) &amp; BWL (10er-Brackets: 10 VL-Punkte = 5 Klausurpunkte) · auf allen Geräten synchron</div>
+        </div>
+      </div>
+
+      <div class="bonus-grid">
+        <!-- Mathe I (1:1) -->
+        <div class="bonus-card">
+          <div class="flex-between">
+            <span class="badge badge-terracotta">Mathe I</span>
+            <span class="badge badge-neutral mono">1 : 1</span>
+          </div>
+          <div class="bonus-score-row">
+            <div class="bonus-big-num mono" data-bonus-display="mathe">${mathe.examPoints}</div>
+            <div>
+              <div class="fw-700 text-sm">Klausurpunkte</div>
+              <div class="text-xs text-muted">Jeder Punkt zählt 1 zu 1</div>
+            </div>
+          </div>
+          <div class="bonus-controls">
+            <button
+              class="btn btn-secondary btn-sm"
+              data-action="adjust-bonus"
+              data-subject="mathe"
+              data-delta="-1"
+              aria-label="Mathe I Bonuspunkt abziehen"
+            >−1</button>
+            <button
+              class="btn btn-primary btn-sm"
+              style="flex:1;"
+              data-action="adjust-bonus"
+              data-subject="mathe"
+              data-delta="1"
+            >+1 Punkt</button>
+          </div>
+        </div>
+
+        <!-- BWL (10er-Brackets: 10 VP = 5 KP) -->
+        <div class="bonus-card">
+          <div class="flex-between">
+            <span class="badge badge-ochre">BWL</span>
+            <span class="badge badge-neutral mono">10 VP = 5 KP</span>
+          </div>
+          <div class="bonus-score-row">
+            <div class="bonus-big-num mono" data-bonus-display="bwl-exam">${bwl.examPoints}</div>
+            <div>
+              <div class="fw-700 text-sm">Klausurpunkte</div>
+              <div class="text-xs text-muted">
+                aus <strong class="mono" data-bonus-display="bwl-vp">${bwl.lecturePoints}</strong> Vorlesungspunkten
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="flex-between text-xs text-muted" style="margin-bottom:4px;">
+              <span>Nächste Stufe: ${bwl.nextBracketAt} VP → ${bwl.nextExamPoints} KP</span>
+              <span class="mono fw-600">noch ${bwl.toNextBracket} VP</span>
+            </div>
+            <div class="progress-track" style="height:6px;">
+              <div class="progress-fill" style="width:${bwl.progressPct}%"></div>
+            </div>
+          </div>
+          <div class="bonus-controls">
+            <button
+              class="btn btn-secondary btn-sm"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="-1"
+              title="1 Vorlesungspunkt abziehen"
+              aria-label="BWL 1 Vorlesungspunkt abziehen"
+            >−1</button>
+            <button
+              class="btn btn-soft btn-sm"
+              style="flex:1;"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="4"
+            >+4 VL</button>
+            <button
+              class="btn btn-primary btn-sm"
+              style="flex:1;"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="8"
+            >+8 VL</button>
+            <button
+              class="btn btn-secondary btn-sm"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="1"
+              title="1 Vorlesungspunkt hinzufügen"
+              aria-label="BWL 1 Vorlesungspunkt hinzufügen"
+            >+1</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderExamCard(ex, now, googleConnected, bonusPoints) {
   const days = daysBetween(ex.date, now);
   const ready = computeExamReadiness(ex);
   const openTopics = ready.total - ready.done;
@@ -120,6 +261,7 @@ function renderExamCard(ex, now, googleConnected) {
 
   const colorInfo = COURSE_COLORS[ex.color] || COURSE_COLORS.sage;
   const fillClass = ready.pct >= 70 ? '' : ready.pct >= 35 ? 'warn' : 'danger';
+  const bonusBadge = getExamBonusBadge(ex.title, bonusPoints);
   const attemptBadge =
     Number(ex.attempt) >= 3
       ? `<span class="badge badge-danger">${ex.attempt}. Versuch</span>`
@@ -134,6 +276,11 @@ function renderExamCard(ex, now, googleConnected) {
           <div class="flex-row" style="gap:6px; margin-bottom:6px;">
             <span class="badge ${colorInfo.badge} mono">${ex.ects} ECTS</span>
             ${attemptBadge}
+            ${
+              bonusBadge
+                ? `<span class="badge badge-sage mono">${ICONS.award} ${esc(bonusBadge.label)}</span>`
+                : ''
+            }
             ${
               ex.fromGoogle
                 ? `<span class="badge badge-google">${ex.isDemoGoogle ? 'Google Beispiel' : 'Google Kalender'}</span>`

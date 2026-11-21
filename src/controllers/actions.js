@@ -49,6 +49,11 @@ import {
   isGoogleEventExam,
   store,
 } from '../state/store.js';
+import {
+  computeBwlBonus,
+  computeMatheBonus,
+  normalizeBonusPoints,
+} from '../utils/bonusPoints.js';
 import { vibrate } from '../utils/html.js';
 import { nextLectureOccurrence } from '../utils/semester.js';
 import { rateCard } from '../utils/spacedRepetition.js';
@@ -96,8 +101,16 @@ export function createActionHandlers({ ui, render, showToast }) {
     const navBtn = e.target.closest('[data-nav]');
     if (navBtn) {
       vibrate(8);
-      ui.tab = navBtn.dataset.nav;
-      if (navBtn.dataset.sub) ui.toolkitSub = navBtn.dataset.sub;
+      const nextTab = navBtn.dataset.nav;
+      const nextSub = navBtn.dataset.sub;
+      ui.tab = nextTab;
+      if (nextSub) {
+        if (nextTab === 'today') ui.todaySub = nextSub;
+        else if (nextTab === 'exams') ui.examsSub = nextSub;
+      } else if (navBtn.classList.contains('rail-nav-btn') || navBtn.classList.contains('m-nav-btn')) {
+        if (nextTab === 'today') ui.todaySub = 'overview';
+        if (nextTab === 'exams') ui.examsSub = 'exams';
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       render();
       return;
@@ -153,11 +166,10 @@ export function createActionHandlers({ ui, render, showToast }) {
       return;
     }
 
-    /* Jump directly to due flashcards in Modules tab */
+    /* Jump directly to due flashcards in standalone Modules tab */
     if (action === 'open-due-cards') {
       vibrate(8);
-      ui.tab = 'toolkit';
-      ui.toolkitSub = 'modules';
+      ui.tab = 'modules';
       if (actionEl.dataset.modId) ui.selectedModuleId = actionEl.dataset.modId;
       ui.cardDueOnly = true;
       ui.cardIndex = 0;
@@ -807,13 +819,55 @@ export function createActionHandlers({ ui, render, showToast }) {
       return;
     }
 
-    /* Toolkit & Recurring Tasks actions */
-    if (action === 'set-toolkit-sub') {
+    /* Sub-tab switches & Bonus-Klausurpunkte actions */
+    if (action === 'set-today-sub') {
       vibrate(6);
-      ui.toolkitSub = actionEl.dataset.value;
+      ui.todaySub = actionEl.dataset.value === 'tasks' ? 'tasks' : 'overview';
       render();
       return;
     }
+    if (action === 'set-exams-sub') {
+      vibrate(6);
+      ui.examsSub = actionEl.dataset.value === 'grades' ? 'grades' : 'exams';
+      render();
+      return;
+    }
+    if (action === 'adjust-bonus') {
+      vibrate(10);
+      const subject = actionEl.dataset.subject;
+      const delta = Number(actionEl.dataset.delta || 0);
+      if (!delta || !['mathe', 'bwl'].includes(subject)) return;
+      const before = normalizeBonusPoints(store.state.bonusPoints);
+      const prevBwlExam = computeBwlBonus(before.bwl).examPoints;
+      let nextMathe = before.mathe;
+      let nextBwl = before.bwl;
+
+      store.update((s) => {
+        const bp = normalizeBonusPoints(s.bonusPoints);
+        if (subject === 'mathe') {
+          bp.mathe = Math.max(0, bp.mathe + delta);
+          nextMathe = bp.mathe;
+        } else {
+          bp.bwl = Math.max(0, bp.bwl + delta);
+          nextBwl = bp.bwl;
+        }
+        s.bonusPoints = bp;
+      });
+
+      if (subject === 'mathe') {
+        const m = computeMatheBonus(nextMathe);
+        showToast(`Mathe I: ${m.examPoints} Bonuspunkt${m.examPoints === 1 ? '' : 'e'} (1:1).`);
+      } else {
+        const b = computeBwlBonus(nextBwl);
+        if (b.examPoints > prevBwlExam) {
+          showToast(`BWL: Neue Stufe erreicht! ${b.lecturePoints} VP → ${b.examPoints} Klausurpunkte!`);
+        } else {
+          showToast(`BWL: ${b.lecturePoints} VP (${b.examPoints} KP · noch ${b.toNextBracket} VP bis ${b.nextExamPoints} KP).`);
+        }
+      }
+      return;
+    }
+
     if (action === 'complete-recurring-task') {
       vibrate(14);
       const id = actionEl.dataset.id;
@@ -925,8 +979,7 @@ export function createActionHandlers({ ui, render, showToast }) {
       vibrate(12);
       const subj = actionEl.dataset.subject || 'GET I';
       focusTimer.setSubject(subj);
-      ui.tab = 'toolkit';
-      ui.toolkitSub = 'focus';
+      ui.tab = 'focus';
       if (!focusTimer.running) focusTimer.start();
       render();
       showToast(`Bib-Fokus für ${subj} gestartet!`);
