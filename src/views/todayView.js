@@ -212,12 +212,23 @@ export function renderTodayView(state, ui = {}) {
     }
 
     ${
-      semInfo.examRegActive
+      semInfo.examRegActive &&
+      state.dismissedExamRegKey !== `${semInfo.config.examRegStart}_${semInfo.config.examRegEnd}`
         ? `<div class="semester-strip mb-md" style="border-color: var(--accent-ochre); background: var(--accent-ochre-soft);">
             <div class="text-xs">
               <strong>Prüfungsanmeldung HSD (eCampus):</strong> Läuft noch bis <strong>${formatShortDateDE(semInfo.config.examRegEnd)} (12:00 Uhr)</strong> — alle 1.-Semester-Klausuren angemeldet?
             </div>
-            <a class="btn btn-secondary btn-sm" href="https://ecampus.hs-duesseldorf.de/" target="_blank" rel="noopener noreferrer">eCampus öffnen ${ICONS.external}</a>
+            <div class="flex-row" style="gap:6px; flex-shrink:0;">
+              <a class="btn btn-secondary btn-sm" href="https://ecampus.hs-duesseldorf.de/" target="_blank" rel="noopener noreferrer">eCampus öffnen ${ICONS.external}</a>
+              <button
+                class="btn btn-ghost btn-sm"
+                data-action="dismiss-exam-reg"
+                data-key="${esc(`${semInfo.config.examRegStart}_${semInfo.config.examRegEnd}`)}"
+                title="Hinweis ausblenden, sobald du angemeldet bist"
+              >
+                ${ICONS.check} Erledigt
+              </button>
+            </div>
           </div>`
         : ''
     }

@@ -292,9 +292,14 @@ export function createFormHandler({ ui, render, showToast }) {
       store.update((s) => {
         const mod = (s.modules || []).find((m) => m.id === modId);
         if (!mod) return;
+        const normUrl = (raw) => {
+          const sVal = String(raw || '').trim();
+          if (!sVal) return '';
+          return /^https?:\/\//i.test(sVal) ? sVal : `https://${sVal}`;
+        };
         mod.notebookLabel = String(fd.get('notebookLabel') || '').trim() || `NotebookLM · ${mod.short}`;
-        mod.notebookUrl = String(fd.get('notebookUrl') || '').trim() || 'https://notebooklm.google.com/';
-        const mUrl = String(fd.get('moodleUrl') || '').trim();
+        mod.notebookUrl = normUrl(fd.get('notebookUrl')) || 'https://notebooklm.google.com/';
+        const mUrl = normUrl(fd.get('moodleUrl'));
         if (mUrl) mod.moodleUrl = mUrl;
       });
       ui.modal = null;
@@ -479,7 +484,8 @@ export function createFormHandler({ ui, render, showToast }) {
         notes: String(fd.get('notes') || '').trim(),
       };
       const pushGoogle = fd.get('pushGoogle') === 'on';
-      if (pushGoogle && (isPersonalBridgeConfigured() || store.state.google.connected)) {
+      const hasGoogleSync = isPersonalBridgeConfigured() || store.state.google.connected;
+      if (pushGoogle && hasGoogleSync) {
         try {
           if (isPersonalBridgeConfigured()) await pushEventViaBridge(payload);
           else await pushEventToGoogle(payload);
@@ -500,7 +506,7 @@ export function createFormHandler({ ui, render, showToast }) {
           color: 'sage',
         });
       });
-      if (pushGoogle && !store.state.google.connected) exportSingleEventToICS(payload);
+      if (pushGoogle && !hasGoogleSync) exportSingleEventToICS(payload);
       ui.modal = null;
       showToast('Termin gespeichert');
       render();
@@ -589,12 +595,14 @@ export function createFormHandler({ ui, render, showToast }) {
     }
 
     if (modalType === 'quicklink') {
+      const rawUrl = String(fd.get('url') || '').trim();
+      const safeUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
       store.update((s) => {
         s.quickLinks.push({
           id: uid('ql'),
           label: String(fd.get('label') || '').trim(),
           sub: String(fd.get('sub') || '').trim(),
-          url: String(fd.get('url') || '').trim(),
+          url: safeUrl,
         });
       });
       ui.modal = null;

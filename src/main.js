@@ -132,25 +132,31 @@ function applyTheme(theme) {
   }
 }
 
-function showToast(message) {
+function showToast(message, { key = '' } = {}) {
   let region = document.querySelector('.toast-region');
   if (!region) {
     region = document.createElement('div');
     region.className = 'toast-region';
     document.body.appendChild(region);
   }
+  if (key) {
+    const existing = region.querySelector(`[data-toast-key="${key}"]`);
+    if (existing) existing.remove();
+  }
   while (region.children.length >= 2) {
     region.firstElementChild?.remove();
   }
   const el = document.createElement('div');
   el.className = 'toast';
+  if (key) el.dataset.toastKey = key;
   el.textContent = message;
   region.appendChild(el);
   setTimeout(() => {
+    if (!el.isConnected) return;
     el.style.opacity = '0';
     el.style.transition = 'opacity 0.25s';
     setTimeout(() => el.remove(), 260);
-  }, 3600);
+  }, 3200);
 }
 
 let lastRenderedRoute = '';

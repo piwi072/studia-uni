@@ -402,17 +402,24 @@ async function callBridge(payload, overrideCfg = null) {
   if (!cfg.url || !cfg.secret) {
     throw new Error('Dauer-Sync ist noch nicht eingerichtet.');
   }
-  const resp = await fetch(cfg.url, {
-    method: 'POST',
-    redirect: 'follow',
-    headers: {
-      'Content-Type': 'text/plain;charset=utf-8',
-    },
-    body: JSON.stringify({
-      secret: cfg.secret,
-      ...payload,
-    }),
-  });
+  let resp;
+  try {
+    resp = await fetch(cfg.url, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        secret: cfg.secret,
+        ...payload,
+      }),
+    });
+  } catch {
+    throw new Error(
+      'Keine Verbindung zum Dauer-Sync-Skript — prüfe deine Internetverbindung oder die Web-App-URL.'
+    );
+  }
   if (!resp.ok) {
     throw new Error(`Dauer-Sync Serverfehler (HTTP ${resp.status}). Prüfe die Web-App-URL.`);
   }

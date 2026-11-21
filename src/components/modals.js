@@ -702,65 +702,69 @@ function renderSettingsBody(state, ui) {
         </form>
       </section>
 
-      <details class="guide-details">
-        <summary>${ICONS.google} Alternative: Direkter Google-OAuth-Login (läuft nach 1 Std. ab)</summary>
-        <div class="form-stack mt-sm">
-          <div class="field">
-            <label for="set-client-id">Google Cloud OAuth 2.0 Client-ID</label>
-            <input
-              id="set-client-id"
-              class="input mono"
-              style="font-size:0.8rem;"
-              value="${esc(g.clientId || DEFAULT_GOOGLE_CLIENT_ID)}"
-              placeholder="922128740496-...apps.googleusercontent.com"
-            />
-          </div>
+      ${
+        !bridgeActive
+          ? `<details class="guide-details">
+              <summary>${ICONS.google} Alternative: Direkter Google-OAuth-Login (läuft nach 1 Std. ab)</summary>
+              <div class="form-stack mt-sm">
+                <div class="field">
+                  <label for="set-client-id">Google Cloud OAuth 2.0 Client-ID</label>
+                  <input
+                    id="set-client-id"
+                    class="input mono"
+                    style="font-size:0.8rem;"
+                    value="${esc(g.clientId || DEFAULT_GOOGLE_CLIENT_ID)}"
+                    placeholder="922128740496-...apps.googleusercontent.com"
+                  />
+                </div>
 
-          <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
-            <input id="set-remember-toggle" type="checkbox" data-action="toggle-google-remember" ${g.rememberLogin !== false ? 'checked' : ''} />
-            <span>Anmeldung merken &amp; beim Öffnen automatisch synchronisieren</span>
-          </label>
+                <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
+                  <input id="set-remember-toggle" type="checkbox" data-action="toggle-google-remember" ${g.rememberLogin !== false ? 'checked' : ''} />
+                  <span>Anmeldung merken &amp; beim Öffnen automatisch synchronisieren</span>
+                </label>
 
-          <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
-            <input id="set-drive-toggle" type="checkbox" data-action="toggle-drive-sync" ${g.driveSyncEnabled !== false ? 'checked' : ''} />
-            <span>Google Drive App-Ordner Sync (Google Drive API erforderlich)</span>
-          </label>
+                <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
+                  <input id="set-drive-toggle" type="checkbox" data-action="toggle-drive-sync" ${g.driveSyncEnabled !== false ? 'checked' : ''} />
+                  <span>Google Drive App-Ordner Sync (Google Drive API erforderlich)</span>
+                </label>
 
-          <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
-            <input id="set-readonly-toggle" type="checkbox" data-action="toggle-google-readonly" ${g.readOnlyMode ? 'checked' : ''} />
-            <span>Nur-Lese-Modus (nur <code>calendar.readonly</code>)</span>
-          </label>
+                <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
+                  <input id="set-readonly-toggle" type="checkbox" data-action="toggle-google-readonly" ${g.readOnlyMode ? 'checked' : ''} />
+                  <span>Nur-Lese-Modus (nur <code>calendar.readonly</code>)</span>
+                </label>
 
-          <div class="flex-row">
-            <button type="button" class="btn btn-google btn-sm" data-action="connect-google">
-              ${ICONS.google} ${g.connected ? 'Neu verbinden' : 'Mit Google anmelden'}
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="connect-google-redirect">
-              Ohne Popup
-            </button>
-            ${
-              g.connected
-                ? `<button type="button" class="btn btn-secondary btn-sm" data-action="sync-google-now">${ICONS.sync} Sync</button>
-                   <button type="button" class="btn btn-danger-soft btn-sm" data-action="disconnect-google">Trennen</button>`
-                : ''
-            }
-          </div>
+                <div class="flex-row">
+                  <button type="button" class="btn btn-google btn-sm" data-action="connect-google">
+                    ${ICONS.google} ${g.connected ? 'Neu verbinden' : 'Mit Google anmelden'}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-action="connect-google-redirect">
+                    Ohne Popup
+                  </button>
+                  ${
+                    g.connected
+                      ? `<button type="button" class="btn btn-secondary btn-sm" data-action="sync-google-now">${ICONS.sync} Sync</button>
+                         <button type="button" class="btn btn-danger-soft btn-sm" data-action="disconnect-google">Trennen</button>`
+                      : ''
+                  }
+                </div>
 
-          ${
-            driveStatus.error
-              ? `<div class="text-xs" style="color:var(--status-danger);">${esc(driveStatus.error)}</div>`
-              : ''
-          }
-          ${
-            ui.googleError
-              ? `<div class="text-xs" style="color:var(--status-danger);">${esc(ui.googleError)}</div>`
-              : ''
-          }
-          <div class="text-xs text-muted">
-            Origin: <code>${esc(origin)}</code> · Redirect: <code>${esc(fullRedirect)}</code>
-          </div>
-        </div>
-      </details>
+                ${
+                  driveStatus.error
+                    ? `<div class="text-xs" style="color:var(--status-danger);">${esc(driveStatus.error)}</div>`
+                    : ''
+                }
+                ${
+                  ui.googleError
+                    ? `<div class="text-xs" style="color:var(--status-danger);">${esc(ui.googleError)}</div>`
+                    : ''
+                }
+                <div class="text-xs text-muted">
+                  Origin: <code>${esc(origin)}</code> · Redirect: <code>${esc(fullRedirect)}</code>
+                </div>
+              </div>
+            </details>`
+          : ''
+      }
 
       <hr style="border:none; border-top:1px solid var(--border-subtle); margin:4px 0;" />
 
@@ -856,7 +860,7 @@ function renderSettingsBody(state, ui) {
             <button type="submit" class="btn btn-secondary btn-sm">Profil speichern</button>
             <button type="button" class="btn btn-secondary btn-sm" data-action="export-backup">${ICONS.download} Backup</button>
             <button type="button" class="btn btn-secondary btn-sm" data-action="import-backup">${ICONS.upload} Laden</button>
-            <button type="button" class="btn btn-danger-soft btn-sm" data-action="reset-demo">WIE-1 Reset</button>
+            <button type="button" class="btn btn-danger-soft btn-sm" data-action="reset-demo">Startdaten-Reset</button>
           </div>
         </form>
       </section>

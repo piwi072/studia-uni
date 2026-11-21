@@ -57,8 +57,8 @@ export function renderExamsView(state, ui) {
                <button class="btn btn-primary" data-action="open-modal" data-modal="grade">${ICONS.plus} Note</button>`
             : `${
                 googleConnected
-                  ? `<button class="btn btn-google btn-sm" data-action="sync-google-now">${ICONS.sync} Google Sync</button>`
-                  : `<button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">${ICONS.google} Google verbinden</button>`
+                  ? `<button class="btn btn-secondary btn-sm" data-action="sync-google-now">${ICONS.sync} Sync</button>`
+                  : `<button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">${ICONS.cloud} Dauer-Sync</button>`
               }
               <button class="btn btn-primary" data-action="open-modal" data-modal="exam">
                 ${ICONS.plus} Klausur
@@ -99,24 +99,19 @@ export function renderExamsView(state, ui) {
         : `
     ${renderBonusPointsCard(bonus)}
 
-    <section class="google-banner" aria-label="Automatische Klausur-Erkennung">
-      <div class="google-banner-info">
-        <div class="google-icon-wrap">${ICONS.google}</div>
-        <div>
-          <div class="fw-700" style="font-size:0.9rem;">
-            ${
-              googleConnected
-                ? 'Klausuren direkt aus deinem Google Kalender'
-                : 'Kein doppeltes Eintippen: Klausuren kommen aus Google Kalender'
-            }
-          </div>
-          <div class="text-xs text-secondary">
-            Erkennung aktiv für Schlagwörter (<code>${esc(keywordsStr)}</code>) + jeder Termin im Kalender lässt sich per 1 Klick als Klausur übernehmen. Lern-Checklisten &amp; Hilfsmittel werden hier direkt drangehängt.
-          </div>
-        </div>
-      </div>
-      <button class="btn btn-secondary btn-sm" data-nav="calendar">Im Kalender wählen</button>
-    </section>
+    ${
+      !googleConnected
+        ? `<div class="semester-strip mb-md" aria-label="Automatische Klausur-Erkennung">
+            <div class="text-xs text-secondary">
+              <strong>Google Kalender Klausuren:</strong> Richte Dauer-Sync ein, dann erscheinen deine echten Termine (<code>${esc(keywordsStr)}</code>) hier automatisch statt der Beispiele.
+            </div>
+            <div class="flex-row" style="gap:6px; flex-shrink:0;">
+              <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="settings">Dauer-Sync</button>
+              <button class="btn btn-ghost btn-sm" data-nav="calendar">Kalender</button>
+            </div>
+          </div>`
+        : ''
+    }
 
     ${
       list.length === 0

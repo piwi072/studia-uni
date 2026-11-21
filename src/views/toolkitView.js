@@ -361,11 +361,12 @@ export function renderModulesView(state, ui) {
               </div>`
         }
 
-        <div class="guide-details mt-md">
-          <div class="text-xs text-secondary">
-            <strong>Tipp für Pixel 8 (Teilen-Ziel):</strong> Wenn Studia als App installiert ist, markiere in NotebookLM, Moodle oder Chrome einfach Text oder einen Link → <strong>Teilen → Studia</strong>. Dann landet der Inhalt direkt hier als Info oder Karteikarte.
+        <details class="guide-details mt-md">
+          <summary>Tipp: Inhalte direkt vom Handy teilen</summary>
+          <div class="text-xs text-secondary mt-sm">
+            Wenn Studia als App installiert ist, markiere in NotebookLM, Moodle oder Chrome Text oder einen Link → <strong>Teilen → Studia</strong>. Dann landet der Inhalt direkt hier als Info oder Karteikarte.
           </div>
-        </div>
+        </details>
       </section>
     </div>
 
@@ -529,10 +530,10 @@ function renderGeminiTutorCard(mod, ui) {
       ${
         !keyConfigured
           ? `
-            <div class="tutor-setup-box mt-md">
-              <div class="text-xs fw-700">Direkt in Studia generieren (optional mit deinem AI-Studio API-Key)</div>
+            <details class="guide-details mt-md">
+              <summary>Optional: AI-Studio API-Key für direkte Generierung in Studia hinterlegen</summary>
               <div class="text-xs text-secondary mt-sm">
-                Mit <strong>Google AI Pro</strong> kannst du in Google AI Studio deine monatlichen API-Credits für <strong>Gemini 4 Neon</strong> aktivieren — oder <strong>Gemini 4 Hydrogen</strong> komplett kostenlos nutzen. Der Key bleibt nur auf diesem Gerät.
+                Mit <strong>Google AI Pro</strong> kannst du in Google AI Studio deine monatlichen API-Credits für <strong>Gemini 4 Neon</strong> aktivieren — oder <strong>Gemini 4 Hydrogen</strong> kostenlos nutzen. Der Key bleibt nur auf diesem Gerät.
               </div>
               <form class="inline-add-row mt-sm" data-form="save-gemini-key">
                 <input
@@ -554,7 +555,7 @@ function renderGeminiTutorCard(mod, ui) {
                   AI Studio Key ${ICONS.external}
                 </a>
               </form>
-            </div>
+            </details>
           `
           : ''
       }
@@ -1279,9 +1280,6 @@ export function renderFocusView(state, ui = {}) {
           <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="15">+15m</button>
           <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="30">+30m</button>
           <button class="btn btn-soft btn-sm" data-action="log-manual-study" data-minutes="60">+60m</button>
-          <button class="btn btn-ghost btn-sm" data-action="focus-wakelock">
-            ${ICONS.phone} Wach: <strong>${snap.wakeLockEnabled ? 'AN' : 'AUS'}</strong>
-          </button>
         </div>
       </section>
 

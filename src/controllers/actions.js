@@ -112,6 +112,8 @@ export function createActionHandlers({ ui, render, showToast }) {
         if (nextTab === 'exams') ui.examsSub = 'exams';
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
+      ui.googleError = '';
+      ui.tutorError = '';
       render();
       return;
     }
@@ -123,13 +125,24 @@ export function createActionHandlers({ ui, render, showToast }) {
     if (action === 'backdrop-close') {
       if (e.target === actionEl) {
         ui.modal = null;
+        ui.googleError = '';
         render();
       }
       return;
     }
     if (action === 'close-modal') {
       ui.modal = null;
+      ui.googleError = '';
       render();
+      return;
+    }
+    if (action === 'dismiss-exam-reg') {
+      vibrate(8);
+      const key = actionEl.dataset.key || 'dismissed';
+      store.update((s) => {
+        s.dismissedExamRegKey = key;
+      });
+      showToast('Prüfungsanmeldung als erledigt markiert!');
       return;
     }
     if (action === 'open-modal') {
@@ -437,9 +450,10 @@ export function createActionHandlers({ ui, render, showToast }) {
     if (action === 'toggle-google-exam') {
       vibrate(10);
       const gKey = actionEl.dataset.gkey;
-      const allEvs = store.state.google.connected
-        ? store.state.googleEvents
-        : store.state.calendarEvents;
+      const allEvs = [
+        ...(store.state.googleEvents || []),
+        ...(store.state.calendarEvents || []),
+      ];
       const ev = allEvs.find((x) => (x.googleEventId || x.id) === gKey);
       if (!ev) return;
 
@@ -856,13 +870,20 @@ export function createActionHandlers({ ui, render, showToast }) {
 
       if (subject === 'mathe') {
         const m = computeMatheBonus(nextMathe);
-        showToast(`Mathe I: ${m.examPoints} Bonuspunkt${m.examPoints === 1 ? '' : 'e'} (1:1).`);
+        showToast(`Mathe I: ${m.examPoints} Klausurpunkt${m.examPoints === 1 ? '' : 'e'} (1:1)`, {
+          key: 'bonus',
+        });
       } else {
         const b = computeBwlBonus(nextBwl);
         if (b.examPoints > prevBwlExam) {
-          showToast(`BWL: Neue Stufe erreicht! ${b.lecturePoints} VP → ${b.examPoints} Klausurpunkte!`);
+          showToast(`BWL: Neue Stufe! ${b.lecturePoints} VP → ${b.examPoints} Klausurpunkte`, {
+            key: 'bonus',
+          });
         } else {
-          showToast(`BWL: ${b.lecturePoints} VP (${b.examPoints} KP · noch ${b.toNextBracket} VP bis ${b.nextExamPoints} KP).`);
+          showToast(
+            `BWL: ${b.lecturePoints} VP (${b.examPoints} KP · noch ${b.toNextBracket} VP bis ${b.nextExamPoints} KP)`,
+            { key: 'bonus' }
+          );
         }
       }
       return;
@@ -1070,6 +1091,14 @@ export function createActionHandlers({ ui, render, showToast }) {
       return;
     }
     if (action === 'reset-demo') {
+      if (
+        typeof window !== 'undefined' &&
+        !window.confirm(
+          'Wirklich auf WIE-1 Startdaten zurücksetzen? Eigene Notizen, Karteikarten, Noten und Bonuspunkte werden zurückgesetzt.'
+        )
+      ) {
+        return;
+      }
       store.resetToDemo();
       ui.modal = null;
       showToast('WIE-1 Startdaten wiederhergestellt.');

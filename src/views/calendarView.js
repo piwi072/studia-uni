@@ -117,51 +117,62 @@ export function renderCalendarView(state, ui) {
       </div>
     </header>
 
-    <section class="google-banner" aria-label="Google Kalender Status">
-      <div class="google-banner-info">
-        <div class="google-icon-wrap">${ICONS.google}</div>
-        <div>
-          <div class="fw-700" style="font-size:0.94rem;">
-            ${
-              bridgeActive
-                ? `Dauer-Sync aktiv (${esc(g.userEmail || 'Google-Konto')})`
-                : g.connected
-                  ? `Verbunden mit ${esc(g.userEmail || 'Google Kalender')}`
-                  : 'Dauer-Sync einrichten — nie wieder mit Google neu anmelden'
-            }
-          </div>
-          <div class="text-xs text-secondary">
-            ${
-              bridgeActive
-                ? `${(state.googleEvents || []).length} Google-Termine · Handy, iPad & PC automatisch synchron · Stand ${lastSyncStr || 'gerade eben'}`
-                : g.connected
-                  ? `${(state.googleEvents || []).length} Google-Termine · Kalender-Sync ${lastSyncStr || 'aktiv'}${
-                      lastDriveStr ? ` · Drive-Sync ${lastDriveStr}` : ''
-                    }${!sessionActive ? ' · Sitzung pausiert' : ''}`
-                  : 'Richte einmalig deinen persönlichen Dauer-Sync ein: Abgaben, Einträge & Google Kalender bleiben automatisch auf Handy, iPad & PC gleich.'
-            }
-          </div>
-        </div>
-      </div>
-      <div class="flex-row">
-        ${
-          bridgeActive || g.connected
-            ? `
-              <button class="btn btn-google btn-sm" data-action="${sessionActive ? 'sync-google-now' : 'refresh-google-session'}">
-                ${ICONS.sync} ${sessionActive ? 'Sync' : 'Sitzung erneuern'}
-              </button>
-              <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="settings">
-                Einstellungen
-              </button>
-            `
-            : `
-              <button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">
-                ${ICONS.cloud} Dauer-Sync einrichten
-              </button>
-            `
-        }
-      </div>
-    </section>
+    ${
+      bridgeActive
+        ? `<div class="semester-strip mb-md" aria-label="Dauer-Sync Status">
+            <div class="flex-row" style="gap:8px;">
+              <span class="sync-dot connected"></span>
+              <div class="text-xs text-secondary">
+                <strong>Dauer-Sync aktiv</strong> (${esc(g.userEmail || 'Google-Konto')}) · ${(state.googleEvents || []).length} Google-Termine · Stand ${lastSyncStr || 'gerade eben'}
+              </div>
+            </div>
+            <div class="flex-row" style="gap:6px;">
+              <button class="btn btn-secondary btn-sm" data-action="sync-google-now">${ICONS.sync} Sync</button>
+              <button class="btn btn-ghost btn-sm" data-action="open-modal" data-modal="settings">${ICONS.settings}</button>
+            </div>
+          </div>`
+        : `<section class="google-banner" aria-label="Google Kalender Status">
+            <div class="google-banner-info">
+              <div class="google-icon-wrap">${ICONS.google}</div>
+              <div>
+                <div class="fw-700" style="font-size:0.94rem;">
+                  ${
+                    g.connected
+                      ? `Verbunden mit ${esc(g.userEmail || 'Google Kalender')}`
+                      : 'Dauer-Sync einrichten — alle Geräte & Google Kalender synchron'
+                  }
+                </div>
+                <div class="text-xs text-secondary">
+                  ${
+                    g.connected
+                      ? `${(state.googleEvents || []).length} Google-Termine · Kalender-Sync ${lastSyncStr || 'aktiv'}${
+                          lastDriveStr ? ` · Drive-Sync ${lastDriveStr}` : ''
+                        }${!sessionActive ? ' · Sitzung pausiert' : ''}`
+                      : 'Einmal einrichten: Abgaben, Einträge & Google Kalender bleiben automatisch auf Handy, iPad & PC gleich — ohne ständiges Neuanmelden.'
+                  }
+                </div>
+              </div>
+            </div>
+            <div class="flex-row">
+              ${
+                g.connected
+                  ? `
+                    <button class="btn btn-google btn-sm" data-action="${sessionActive ? 'sync-google-now' : 'refresh-google-session'}">
+                      ${ICONS.sync} ${sessionActive ? 'Sync' : 'Sitzung erneuern'}
+                    </button>
+                    <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="settings">
+                      Einstellungen
+                    </button>
+                  `
+                  : `
+                    <button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">
+                      ${ICONS.cloud} Dauer-Sync einrichten
+                    </button>
+                  `
+              }
+            </div>
+          </section>`
+    }
 
     <div class="timetable-toolbar">
       <div class="segmented-bar" role="tablist" aria-label="Kalenderfilter">
@@ -279,7 +290,7 @@ export function renderCalendarView(state, ui) {
                             ${
                               canPush
                                 ? `<button class="btn btn-ghost btn-sm" data-action="push-event-google" data-title="${esc(ev.title)}" data-date="${esc(ev.date)}" data-start="${esc(ev.start || '09:00')}" data-end="${esc(ev.end || '')}" data-location="${esc(ev.location || '')}" data-notes="${esc(ev.notes || '')}">
-                                    ${ICONS.google} ${state.google.connected ? 'In Google speichern' : '.ics'}
+                                    ${ICONS.google} ${bridgeActive || state.google.connected ? 'In Google speichern' : '.ics'}
                                   </button>`
                                 : ''
                             }

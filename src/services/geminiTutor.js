@@ -211,11 +211,18 @@ async function callGemini({ systemInstruction, userPrompt, modelOverride = null 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const body = buildGeminiRequestBody({ model, systemInstruction, userPrompt, thinkingLevel });
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      'Keine Internetverbindung — für den KI-Tutor wird eine aktive Verbindung benötigt.'
+    );
+  }
 
   if (!resp.ok) {
     const errJson = await resp.json().catch(() => null);

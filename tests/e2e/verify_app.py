@@ -140,6 +140,11 @@ def run_tests():
             assert ql_hrefs[1] == "https://ecampus.hs-duesseldorf.de/", f"Expected HSD eCampus second, got {ql_hrefs}"
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_today.png"), full_page=True)
 
+            # Test dismissing the HSD eCampus exam registration banner if currently active
+            if page.locator('[data-action="dismiss-exam-reg"]').count() > 0:
+                page.click('[data-action="dismiss-exam-reg"]')
+                assert page.locator('[data-action="dismiss-exam-reg"]').count() == 0, "Dismissed exam reg banner should hide"
+
             # Abgaben sub-tab under Heute: reminders banner & holiday-aware schedule
             page.click('[data-action="set-today-sub"][data-value="tasks"]')
             page.wait_for_selector(".recurring-card")
@@ -212,7 +217,8 @@ def run_tests():
             assert "In Gemini Pro (Neon) öffnen" in page.inner_text("body")
             page.select_option('[data-action="change-gemini-thinking"]', "high")
 
-            # Test Gemini 4 Neon API key setup + card generation + accept
+            # Expand optional API key details, enter key, generate & accept cards
+            page.click('.tutor-card details.guide-details > summary')
             page.fill('[data-form="save-gemini-key"] input[name="apiKey"]', "AIzaSyTestLocalKey123456789")
             page.click('[data-form="save-gemini-key"] button[type="submit"]')
             page.wait_for_selector('[data-form="tutor-run"] button[type="submit"]')
@@ -342,10 +348,12 @@ def run_tests():
             assert sync_page.inner_text('[data-bonus-display="mathe"]').strip() == "9", "Synced Mathe bonus points should appear"
             assert sync_page.inner_text('[data-bonus-display="bwl-exam"]').strip() == "15", "Synced BWL bonus points should appear"
 
-            # Verify Settings modal now shows paired Active state & Geräte-Link button
+            # Verify Settings modal now shows paired Active state & hides legacy OAuth clutter!
             sync_page.click('.rail-footer [data-action="open-modal"][data-modal="settings"]')
             sync_page.wait_for_selector('[data-action="bridge-copy-pair-link"]')
-            assert "Geräte-Link für Handy & iPad kopieren" in sync_page.inner_text(".modal-sheet")
+            active_settings_text = sync_page.inner_text(".modal-sheet")
+            assert "Geräte-Link für Handy & iPad kopieren" in active_settings_text
+            assert "Google-OAuth-Login" not in active_settings_text, "Legacy OAuth section should be hidden when Dauer-Sync is active"
             sync_page.screenshot(path=os.path.join(SCRATCH_DIR, "v4_desktop_settings_bridge_active.png"), full_page=True)
             assert len(sync_errors) == 0, f"Bridge Sync device errors: {sync_errors}"
             sync_ctx.close()
