@@ -1,4 +1,4 @@
-const CACHE_NAME = 'studia-pwa-v4';
+const CACHE_NAME = 'studia-pwa-v5';
 const APP_SHELL = [
   './',
   './index.html',
@@ -31,10 +31,12 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Never cache Google OAuth, Calendar API, Drive API, or Gemini API requests
+  // Never cache Google OAuth, Calendar/Drive/Gemini APIs, or Personal Apps Script Bridge
   if (
     url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('accounts.google.com')
+    url.hostname.includes('accounts.google.com') ||
+    url.hostname.includes('script.google.com') ||
+    url.hostname.includes('script.googleusercontent.com')
   ) {
     return;
   }

@@ -11,6 +11,7 @@ import {
   parseISODate,
 } from '../data/defaults.js';
 import { hasActiveGoogleToken } from '../services/googleCalendar.js';
+import { isPersonalBridgeConfigured } from '../services/personalBridge.js';
 import { getAllCalendarEvents } from '../state/store.js';
 import { esc } from '../utils/html.js';
 import { findHolidayForDate, getSemesterDayStatus } from '../utils/semester.js';
@@ -91,13 +92,14 @@ export function renderCalendarView(state, ui) {
   }
 
   const g = state.google;
+  const bridgeActive = isPersonalBridgeConfigured();
   const lastSyncStr = g.lastSync
     ? new Date(g.lastSync).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
   const lastDriveStr = g.lastDriveSync
     ? new Date(g.lastDriveSync).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
-  const sessionActive = hasActiveGoogleToken();
+  const sessionActive = bridgeActive || hasActiveGoogleToken();
 
   return `
     <header class="page-header">
@@ -121,25 +123,29 @@ export function renderCalendarView(state, ui) {
         <div>
           <div class="fw-700" style="font-size:0.94rem;">
             ${
-              g.connected
-                ? `Verbunden mit ${esc(g.userEmail || 'Google Kalender')}`
-                : 'Google Kalender verknüpfen — Klausuren & Drive-Sync aktivieren'
+              bridgeActive
+                ? `Dauer-Sync aktiv (${esc(g.userEmail || 'Google-Konto')})`
+                : g.connected
+                  ? `Verbunden mit ${esc(g.userEmail || 'Google Kalender')}`
+                  : 'Dauer-Sync einrichten — nie wieder mit Google neu anmelden'
             }
           </div>
           <div class="text-xs text-secondary">
             ${
-              g.connected
-                ? `${(state.googleEvents || []).length} Google-Termine · Kalender-Sync ${lastSyncStr || 'aktiv'}${
-                    lastDriveStr ? ` · Drive-Sync ${lastDriveStr}` : ''
-                  }${!sessionActive ? ' · Sitzung pausiert' : ''}`
-                : 'Verbinde dein Google-Konto für automatische Klausur-Erkennung, Abgaben-Erinnerungen und Pixel/iPad/PC-Sync via Google Drive.'
+              bridgeActive
+                ? `${(state.googleEvents || []).length} Google-Termine · Handy, iPad & PC automatisch synchron · Stand ${lastSyncStr || 'gerade eben'}`
+                : g.connected
+                  ? `${(state.googleEvents || []).length} Google-Termine · Kalender-Sync ${lastSyncStr || 'aktiv'}${
+                      lastDriveStr ? ` · Drive-Sync ${lastDriveStr}` : ''
+                    }${!sessionActive ? ' · Sitzung pausiert' : ''}`
+                  : 'Richte einmalig deinen persönlichen Dauer-Sync ein: Abgaben, Einträge & Google Kalender bleiben automatisch auf Handy, iPad & PC gleich.'
             }
           </div>
         </div>
       </div>
       <div class="flex-row">
         ${
-          g.connected
+          bridgeActive || g.connected
             ? `
               <button class="btn btn-google btn-sm" data-action="${sessionActive ? 'sync-google-now' : 'refresh-google-session'}">
                 ${ICONS.sync} ${sessionActive ? 'Sync' : 'Sitzung erneuern'}
@@ -150,7 +156,7 @@ export function renderCalendarView(state, ui) {
             `
             : `
               <button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">
-                ${ICONS.google} Mit Google verbinden
+                ${ICONS.cloud} Dauer-Sync einrichten
               </button>
             `
         }

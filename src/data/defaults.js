@@ -310,6 +310,7 @@ export function createDefaultState() {
       showSaturday: false,
     },
     theme: 'light',
+    sidebarCollapsed: false,
     google: {
       clientId: DEFAULT_GOOGLE_CLIENT_ID,
       readOnlyMode: false,

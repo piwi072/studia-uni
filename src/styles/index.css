@@ -218,13 +218,114 @@ a {
   top: 0;
   height: 100dvh;
   z-index: 20;
+  transition: width 0.22s var(--ease-out), padding 0.22s var(--ease-out);
 }
 
 .brand-header {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 4px 10px 20px;
+  gap: 10px;
+  padding: 4px 6px 20px;
+}
+
+.brand-toggle-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-muted);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.brand-toggle-btn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--ink-primary);
+}
+
+.brand-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  transition: opacity 0.15s;
+}
+
+.brand-trigger:hover {
+  opacity: 0.88;
+}
+
+/* Collapsed Sidebar Rail (PC & iPad Webversion) */
+.sidebar-rail.collapsed {
+  width: 72px;
+  padding: 20px 10px 16px;
+}
+
+.sidebar-rail.collapsed .brand-header {
+  flex-direction: column;
+  padding: 0 0 16px;
+  gap: 8px;
+}
+
+.sidebar-rail.collapsed .brand-trigger {
+  flex: 0;
+  justify-content: center;
+}
+
+.sidebar-rail.collapsed .brand-text,
+.sidebar-rail.collapsed .rail-label,
+.sidebar-rail.collapsed .mini-timer-label {
+  display: none;
+}
+
+.sidebar-rail.collapsed .brand-toggle-btn {
+  margin-left: 0;
+}
+
+.sidebar-rail.collapsed .rail-nav-btn {
+  justify-content: center;
+  padding: 11px 0;
+  gap: 0;
+}
+
+.sidebar-rail.collapsed .rail-nav-btn .nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  margin-left: 0;
+  padding: 1px 5px;
+  font-size: 0.64rem;
+  line-height: 1.25;
+}
+
+.sidebar-rail.collapsed .mini-timer-pill {
+  flex-direction: column;
+  justify-content: center;
+  padding: 8px 4px;
+  gap: 3px;
+  font-size: 0.68rem;
+}
+
+.sidebar-rail.collapsed .sync-status-btn {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.sidebar-rail.collapsed .rail-utility-row {
+  flex-direction: column;
+  align-items: center;
+}
+
+.sidebar-rail.collapsed .rail-utility-row .icon-btn {
+  width: 38px;
+  flex: none !important;
 }
 
 .brand-mark {

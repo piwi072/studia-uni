@@ -177,12 +177,14 @@ class StudiaStore {
     }
     const prevGoogle = this.state.google;
     const prevGoogleEvents = this.state.googleEvents;
+    const prevSidebarCollapsed = Boolean(this.state.sidebarCollapsed);
     const demoEvents = (this.state.calendarEvents || []).filter((e) => e.source === 'google-demo');
     const remoteEvents = Array.isArray(remote.calendarEvents) ? remote.calendarEvents : [];
 
     const merged = mergeWithDefaults(
       {
         ...remote,
+        sidebarCollapsed: prevSidebarCollapsed,
         calendarEvents: [...demoEvents, ...remoteEvents.filter((e) => e.source !== 'google-demo')],
         google: {
           ...prevGoogle,

@@ -8,6 +8,12 @@ import {
   setGeminiThinkingLevel,
 } from '../services/geminiTutor.js';
 import { pushEventToGoogle } from '../services/googleCalendar.js';
+import {
+  isPersonalBridgeConfigured,
+  pushEventViaBridge,
+  savePersonalBridgeConfig,
+  syncAllViaBridge,
+} from '../services/personalBridge.js';
 import { exportSingleEventToICS } from '../services/ics.js';
 import { addMinutesToTime, getUnifiedExams, store } from '../state/store.js';
 import { parseBulkFlashcards } from '../utils/flashcardParser.js';
@@ -20,6 +26,32 @@ export function createFormHandler({ ui, render, showToast }) {
     const fd = new FormData(form);
 
     /* ---------- Inline Forms ---------- */
+    if (form.dataset.form === 'save-bridge-config') {
+      const url = String(fd.get('bridgeUrl') || '').trim();
+      const secret = String(fd.get('bridgeSecret') || '').trim();
+      if (!url || !/^https:\/\//i.test(url)) {
+        showToast('Bitte eine gültige https://script.google.com/…/exec URL eingeben.');
+        return;
+      }
+      if (secret.length < 8) {
+        showToast('Das Sync-Token sollte mindestens 8 Zeichen lang sein.');
+        return;
+      }
+      savePersonalBridgeConfig({ url, secret });
+      showToast('Teste Verbindung & synchronisiere…');
+      try {
+        const res = await syncAllViaBridge({ direction: 'auto', silent: false });
+        showToast(
+          `Dauer-Sync aktiv! ${res.eventsCount || 0} Kalender-Termine geladen — nie wieder neu anmelden.`
+        );
+        render();
+      } catch (err) {
+        showToast(err.message || 'Verbindung fehlgeschlagen.');
+        render();
+      }
+      return;
+    }
+
     if (form.dataset.form === 'add-topic') {
       const text = String(fd.get('topic') || '').trim();
       if (!text) return;
@@ -370,9 +402,10 @@ export function createFormHandler({ ui, render, showToast }) {
         aids: String(fd.get('aids') || '').trim(),
         color: String(fd.get('color') || 'sage'),
       };
-      if (!id && fd.get('pushGoogle') === 'on' && store.state.google.connected) {
+      if (!id && fd.get('pushGoogle') === 'on' && (isPersonalBridgeConfigured() || store.state.google.connected)) {
         try {
-          const created = await pushEventToGoogle({
+          const pushFn = isPersonalBridgeConfigured() ? pushEventViaBridge : pushEventToGoogle;
+          const created = await pushFn({
             title: `Klausur ${entry.title}`,
             date: entry.date,
             start: entry.time,
@@ -449,9 +482,10 @@ export function createFormHandler({ ui, render, showToast }) {
         notes: String(fd.get('notes') || '').trim(),
       };
       const pushGoogle = fd.get('pushGoogle') === 'on';
-      if (pushGoogle && store.state.google.connected) {
+      if (pushGoogle && (isPersonalBridgeConfigured() || store.state.google.connected)) {
         try {
-          await pushEventToGoogle(payload);
+          if (isPersonalBridgeConfigured()) await pushEventViaBridge(payload);
+          else await pushEventToGoogle(payload);
           ui.modal = null;
           showToast('Termin im Google Kalender gespeichert!');
           render();

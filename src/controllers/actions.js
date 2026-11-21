@@ -16,6 +16,7 @@ import {
   clearPersistedSession,
   connectGoogleAccount,
   disconnectGoogleAccount,
+  hasActiveGoogleToken,
   pushAllRecurringTasksToGoogle,
   pushEventToGoogle,
   pushRecurringTaskToGoogle,
@@ -23,6 +24,17 @@ import {
   syncGoogleCalendars,
 } from '../services/googleCalendar.js';
 import { syncWithGoogleDrive } from '../services/googleDriveSync.js';
+import {
+  buildBridgePairingUrl,
+  clearPersonalBridgeConfig,
+  ensureBridgeSecret,
+  generateAppsScriptCode,
+  isPersonalBridgeConfigured,
+  pushAllRecurringTasksViaBridge,
+  pushEventViaBridge,
+  pushRecurringTaskViaBridge,
+  syncAllViaBridge,
+} from '../services/personalBridge.js';
 import {
   exportExamsToICS,
   exportRecurringTasksToICS,
@@ -128,6 +140,16 @@ export function createActionHandlers({ ui, render, showToast }) {
       store.update((s) => {
         s.theme = s.theme === 'dark' ? 'light' : 'dark';
       });
+      return;
+    }
+    if (action === 'toggle-sidebar') {
+      vibrate(6);
+      store.update(
+        (s) => {
+          s.sidebarCollapsed = !s.sidebarCollapsed;
+        },
+        { touchUpdatedAt: false }
+      );
       return;
     }
 
@@ -498,7 +520,112 @@ export function createActionHandlers({ ui, render, showToast }) {
       }
       return;
     }
+    /* Personal Dauer-Sync Bridge actions */
+    if (action === 'bridge-copy-script') {
+      const secretInput = document.getElementById('bridge-secret');
+      const secret = (secretInput?.value || '').trim() || ensureBridgeSecret();
+      const scriptCode = generateAppsScriptCode(secret);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(scriptCode);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = scriptCode;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        showToast('Apps-Script-Code kopiert! Jetzt in script.google.com einfügen.');
+      } catch {
+        showToast('Konnte nicht automatisch kopieren — bitte erneut tippen.');
+      }
+      return;
+    }
+    if (action === 'bridge-copy-pair-link') {
+      const pairUrl = buildBridgePairingUrl();
+      if (!pairUrl) {
+        showToast('Bitte zuerst URL & Sync-Token speichern.');
+        return;
+      }
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(pairUrl);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = pairUrl;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        showToast('Geräte-Link kopiert! Auf Pixel 8 & iPad 1× öffnen → sofort synchron.');
+      } catch {
+        showToast('Konnte Link nicht kopieren — bitte erneut tippen.');
+      }
+      return;
+    }
+    if (
+      action === 'bridge-sync-now' ||
+      action === 'bridge-sync-upload' ||
+      action === 'bridge-sync-download'
+    ) {
+      const direction =
+        action === 'bridge-sync-upload'
+          ? 'upload'
+          : action === 'bridge-sync-download'
+            ? 'download'
+            : 'auto';
+      try {
+        showToast('Synchronisiere alle Geräte & Google Kalender…');
+        const res = await syncAllViaBridge({ direction, silent: false });
+        const label =
+          res.action === 'downloaded'
+            ? `Stand aus Cloud geladen + ${res.eventsCount || 0} Kalender-Termine!`
+            : res.action === 'uploaded'
+              ? `Stand in Cloud gesichert + ${res.eventsCount || 0} Kalender-Termine!`
+              : `Alles aktuell (${res.eventsCount || 0} Kalender-Termine).`;
+        showToast(label);
+        render();
+      } catch (err) {
+        showToast(err.message || 'Dauer-Sync fehlgeschlagen.');
+        render();
+      }
+      return;
+    }
+    if (action === 'bridge-disconnect') {
+      clearPersonalBridgeConfig();
+      if (!hasActiveGoogleToken()) {
+        store.update(
+          (s) => {
+            s.google.connected = false;
+          },
+          { touchUpdatedAt: false, fromRemote: true }
+        );
+      }
+      showToast('Dauer-Sync auf diesem Gerät getrennt.');
+      render();
+      return;
+    }
+
     if (action === 'sync-google-now') {
+      if (isPersonalBridgeConfigured()) {
+        try {
+          const res = await syncAllViaBridge({ direction: 'auto', silent: false });
+          ui.googleError = '';
+          showToast(`Dauer-Sync: ${res.eventsCount || 0} Google-Termine aktuell.`);
+          render();
+        } catch (err) {
+          ui.googleError = err.message;
+          showToast(err.message);
+          render();
+        }
+        return;
+      }
       try {
         const count = await syncGoogleCalendars();
         if (store.state.google.driveSyncEnabled) {
@@ -551,7 +678,14 @@ export function createActionHandlers({ ui, render, showToast }) {
         location: actionEl.dataset.location,
         notes: actionEl.dataset.notes,
       };
-      if (store.state.google.connected) {
+      if (isPersonalBridgeConfigured()) {
+        try {
+          await pushEventViaBridge(payload);
+          showToast('Im Google Kalender gespeichert!');
+        } catch (err) {
+          showToast(err.message);
+        }
+      } else if (store.state.google.connected) {
         try {
           await pushEventToGoogle(payload);
           showToast('Im Google Kalender gespeichert!');
@@ -569,10 +703,9 @@ export function createActionHandlers({ ui, render, showToast }) {
     if (action === 'push-all-recurring-google') {
       try {
         showToast('Lege Abgabe-Serien mit Erinnerungen an…');
-        const cnt = await pushAllRecurringTasksToGoogle(
-          store.state.tasks,
-          store.state.semesterConfig
-        );
+        const cnt = isPersonalBridgeConfigured()
+          ? await pushAllRecurringTasksViaBridge(store.state.tasks, store.state.semesterConfig)
+          : await pushAllRecurringTasksToGoogle(store.state.tasks, store.state.semesterConfig);
         showToast(`${cnt} Abgabe-Serien (Vorabend + 2h Erinnerung) in Google angelegt!`);
       } catch (err) {
         showToast(err.message);
@@ -582,7 +715,14 @@ export function createActionHandlers({ ui, render, showToast }) {
     if (action === 'push-recurring-task-google') {
       const tk = (store.state.tasks || []).find((x) => x.id === actionEl.dataset.id);
       if (!tk) return;
-      if (store.state.google.connected) {
+      if (isPersonalBridgeConfigured()) {
+        try {
+          await pushRecurringTaskViaBridge(tk, store.state.semesterConfig);
+          showToast(`Serie „${tk.title}“ mit Erinnerungen im Google Kalender gespeichert!`);
+        } catch (err) {
+          showToast(err.message);
+        }
+      } else if (store.state.google.connected) {
         try {
           await pushRecurringTaskToGoogle(tk, store.state.semesterConfig);
           showToast(`Serie „${tk.title}“ mit Erinnerungen im Google Kalender gespeichert!`);
@@ -646,7 +786,14 @@ export function createActionHandlers({ ui, render, showToast }) {
         location: ex.room || '',
         notes: `${ex.ects} ECTS · ${ex.attempt}. Versuch${ex.aids ? ` · Hilfsmittel: ${ex.aids}` : ''}`,
       };
-      if (store.state.google.connected) {
+      if (isPersonalBridgeConfigured()) {
+        try {
+          await pushEventViaBridge(payload);
+          showToast(`„${ex.title}“ in Google Kalender gespeichert!`);
+        } catch (err) {
+          showToast(err.message);
+        }
+      } else if (store.state.google.connected) {
         try {
           await pushEventToGoogle(payload);
           showToast(`„${ex.title}“ in Google Kalender gespeichert!`);
@@ -951,7 +1098,14 @@ export function createActionHandlers({ ui, render, showToast }) {
         else set.delete(calId);
         s.google.selectedCalendarIds = [...set];
       });
-      if (store.state.google.connected) {
+      if (isPersonalBridgeConfigured()) {
+        try {
+          await syncAllViaBridge({ direction: 'auto', silent: true });
+          showToast('Kalender-Auswahl aktualisiert.');
+        } catch (err) {
+          showToast(err.message);
+        }
+      } else if (store.state.google.connected) {
         try {
           await syncGoogleCalendars();
           showToast('Kalender-Auswahl aktualisiert.');

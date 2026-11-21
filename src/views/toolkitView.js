@@ -14,6 +14,7 @@ import {
   getGeminiThinkingLevel,
   hasGeminiKey,
 } from '../services/geminiTutor.js';
+import { isPersonalBridgeConfigured } from '../services/personalBridge.js';
 import {
   computeGpaStats,
   formatGradeDE,
@@ -1046,7 +1047,7 @@ function renderTasksTab(state) {
       return (a.due || '9999').localeCompare(b.due || '9999');
     });
 
-  const googleConnected = Boolean(state.google?.connected);
+  const googleConnected = Boolean(state.google?.connected || isPersonalBridgeConfigured());
 
   return `
     <div class="toolkit-grid">

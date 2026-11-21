@@ -15,6 +15,12 @@ import {
   getGeminiThinkingLevel,
 } from '../services/geminiTutor.js';
 import { getDriveSyncStatus } from '../services/googleDriveSync.js';
+import {
+  ensureBridgeSecret,
+  getBridgeStatus,
+  getPersonalBridgeConfig,
+  isPersonalBridgeConfigured,
+} from '../services/personalBridge.js';
 import { formatSingleGradeDE, getUnifiedExams } from '../state/store.js';
 import { guessModuleIdFromText } from '../utils/flashcardParser.js';
 import { esc } from '../utils/html.js';
@@ -48,7 +54,7 @@ export function renderModal(state, modalState, ui = {}) {
         ? 'Lern-Details zur Google-Klausur'
         : 'Klausur bearbeiten'
       : 'Neue Klausur eintragen';
-    body = renderExamForm(existing, state.google.connected);
+    body = renderExamForm(existing, Boolean(state.google.connected || isPersonalBridgeConfigured()));
     footer = `
       <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Speichern</button>
@@ -83,7 +89,7 @@ export function renderModal(state, modalState, ui = {}) {
     `;
   } else if (type === 'event') {
     title = 'Neuer Kalender-Termin';
-    body = renderEventForm(date || isoDate(), state.google.connected);
+    body = renderEventForm(date || isoDate(), Boolean(state.google.connected || isPersonalBridgeConfigured()));
     footer = `
       <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Speichern</button>
@@ -513,6 +519,10 @@ function renderSettingsBody(state, ui) {
   const origin = window.location.origin;
   const fullRedirect = `${window.location.origin}${window.location.pathname}`;
   const driveStatus = getDriveSyncStatus();
+  const bridgeCfg = getPersonalBridgeConfig();
+  const bridgeSecret = bridgeCfg.secret || ensureBridgeSecret();
+  const bridgeActive = isPersonalBridgeConfigured();
+  const bridgeStat = getBridgeStatus();
   const lastDriveStr = g.lastDriveSync
     ? new Date(g.lastDriveSync).toLocaleString('de-DE', {
         day: '2-digit',
@@ -532,11 +542,169 @@ function renderSettingsBody(state, ui) {
 
   return `
     <div class="form-stack">
+      <!-- 1. Dauer-Sync ohne ständiges Google-Anmelden (Empfohlen für Handy + iPad + PC) -->
       <section>
-        <h3 style="font-size:0.98rem; margin-bottom:10px; display:flex; align-items:center; gap:8px;">
-          ${ICONS.google} Google Kalender &amp; Geräte-Sync (Drive)
-        </h3>
-        <div class="form-stack">
+        <div class="flex-between" style="margin-bottom:8px;">
+          <h3 style="font-size:0.98rem; display:flex; align-items:center; gap:8px;">
+            ${ICONS.cloud} Dauer-Sync (Ohne Neuanmeldung)
+          </h3>
+          <span class="badge ${bridgeActive ? 'badge-sage' : 'badge-ochre'}">
+            ${bridgeActive ? 'Aktiv' : 'Empfohlen'}
+          </span>
+        </div>
+
+        <p class="text-xs text-secondary" style="margin-bottom:10px;">
+          Synchronisiert <strong>Abgaben, Karteikarten, Notizen, Stundenplan UND Google Kalender</strong> dauerhaft zwischen Handy, iPad &amp; PC — über dein eigenes Google-Skript, ohne dass der Login nach 1 Stunde abläuft.
+        </p>
+
+        <form class="form-stack" data-form="save-bridge-config">
+          <div class="field">
+            <label for="bridge-url">Deine persönliche Google Apps Script Web-App-URL</label>
+            <input
+              id="bridge-url"
+              name="bridgeUrl"
+              type="url"
+              class="input mono"
+              style="font-size:0.78rem;"
+              value="${esc(bridgeCfg.url)}"
+              placeholder="https://script.google.com/macros/s/…/exec"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="bridge-secret">Dein geheimes Sync-Token (schützt deinen Zugang)</label>
+            <input
+              id="bridge-secret"
+              name="bridgeSecret"
+              class="input mono"
+              style="font-size:0.78rem;"
+              value="${esc(bridgeSecret)}"
+              required
+            />
+          </div>
+
+          <div class="flex-row">
+            <button type="submit" class="btn btn-primary btn-sm">
+              ${ICONS.sync} ${bridgeActive ? 'Speichern & Sync' : 'Verbinden & testen'}
+            </button>
+            ${
+              bridgeActive
+                ? `<button type="button" class="btn btn-soft btn-sm" data-action="bridge-copy-pair-link">
+                     ${ICONS.link} Geräte-Link für Handy &amp; iPad kopieren
+                   </button>
+                   <button type="button" class="btn btn-secondary btn-sm" data-action="bridge-sync-now">
+                     ${ICONS.sync} Jetzt Sync
+                   </button>
+                   <button type="button" class="btn btn-danger-soft btn-sm" data-action="bridge-disconnect">
+                     Trennen
+                   </button>`
+                : ''
+            }
+          </div>
+        </form>
+
+        ${
+          bridgeActive
+            ? `<div class="note-card mt-sm" style="background:var(--accent-primary-softer); border-color:var(--accent-primary-soft);">
+                <div class="flex-between" style="flex-wrap:wrap; gap:6px;">
+                  <div class="text-xs text-secondary">
+                    <strong>Status:</strong> ${
+                      bridgeStat.state === 'syncing'
+                        ? 'Synchronisiere…'
+                        : `${esc(bridgeStat.message || 'Synchronisiert')}${lastDriveStr ? ` (${lastDriveStr})` : ''}`
+                    }
+                  </div>
+                  <div class="flex-row" style="gap:4px;">
+                    <button type="button" class="btn btn-secondary btn-sm" data-action="bridge-sync-upload" title="Stand dieses Geräts erzwingen">${ICONS.upload}</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-action="bridge-sync-download" title="Cloud-Stand herunterladen">${ICONS.download}</button>
+                  </div>
+                </div>
+                <div class="text-xs text-muted mt-sm">
+                  <strong>Neues Gerät (Pixel 8 / iPad):</strong> Oben auf <em>„Geräte-Link kopieren“</em> tippen, dir selbst schicken (z. B. WhatsApp / Mail) und 1× öffnen — fertig!
+                </div>
+              </div>`
+            : ''
+        }
+
+        ${
+          bridgeStat.error
+            ? `<div class="note-card mt-sm" style="background:var(--status-danger-soft); color:var(--status-danger);">
+                <div class="text-xs fw-700">Dauer-Sync Hinweis</div>
+                <div class="text-xs">${esc(bridgeStat.error)}</div>
+              </div>`
+            : ''
+        }
+
+        <details class="guide-details mt-sm" ${!bridgeActive ? 'open' : ''}>
+          <summary>Einmalige 2-Minuten-Einrichtung (danach nie wieder anmelden)</summary>
+          <div class="flex-row mt-sm" style="margin-bottom:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="bridge-copy-script">
+              ${ICONS.copy} Apps-Script-Code kopieren (mit deinem Token)
+            </button>
+            <a class="btn btn-soft btn-sm" href="https://script.google.com/home/start" target="_blank" rel="noopener noreferrer">
+              script.google.com öffnen ${ICONS.external}
+            </a>
+          </div>
+          <ol>
+            <li>Öffne <strong>script.google.com</strong> → <strong>Neues Projekt</strong> → vorhandenen Text komplett löschen → kopierten Code einfügen &amp; speichern.</li>
+            <li>Oben rechts auf <strong>Bereitstellen → Neue Bereitstellung</strong> → Zahnrad → <strong>Web-App</strong> wählen.</li>
+            <li>Bei <em>Ausführen als</em>: <strong>Ich</strong> · Bei <em>Zugriff</em>: <strong>Jeder</strong> (nur dein geheimes Token oben hat Zugriff!) → <strong>Bereitstellen</strong> → einmalig Zugriff erlauben.</li>
+            <li>Die erzeugte <code>https://script.google.com/macros/s/…/exec</code>-URL oben einfügen → <strong>Verbinden &amp; testen</strong> → danach den <strong>Geräte-Link</strong> auf Pixel 8 &amp; iPad öffnen!</li>
+          </ol>
+        </details>
+
+        ${
+          (bridgeActive || g.connected) && g.calendars?.length > 0
+            ? `
+              <div class="form-stack mt-md">
+                <div class="field">
+                  <label>Angezeigte Google Kalender</label>
+                  <div class="form-stack" style="gap:6px;">
+                    ${g.calendars
+                      .map(
+                        (cal) => `
+                      <label class="flex-row" style="font-size:0.86rem; cursor:pointer;">
+                        <input type="checkbox" data-action="toggle-google-cal" value="${esc(cal.id)}" ${g.selectedCalendarIds.includes(cal.id) ? 'checked' : ''} />
+                        <span>${esc(cal.summary)} ${cal.primary ? '(Hauptkalender)' : ''}</span>
+                      </label>`
+                      )
+                      .join('')}
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="set-write-cal">Ziel-Kalender für neue Termine &amp; Abgabe-Serien</label>
+                  <select id="set-write-cal" class="select" data-action="set-write-google-cal">
+                    ${g.calendars
+                      .filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
+                      .map((cal) => `<option value="${esc(cal.id)}" ${g.writeCalendarId === cal.id ? 'selected' : ''}>${esc(cal.summary)}</option>`)
+                      .join('')}
+                  </select>
+                </div>
+              </div>
+            `
+            : ''
+        }
+
+        <form class="form-stack mt-sm" data-form="exam-keywords">
+          <div class="field">
+            <label for="set-keywords">Schlagwörter für automatische Klausur-Erkennung</label>
+            <div class="inline-add-row" style="margin-top:0;">
+              <input
+                id="set-keywords"
+                name="keywords"
+                class="input"
+                style="font-size:0.84rem;"
+                value="${esc((g.examKeywords || []).join(', '))}"
+              />
+              <button type="submit" class="btn btn-secondary btn-sm">Speichern</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <details class="guide-details">
+        <summary>${ICONS.google} Alternative: Direkter Google-OAuth-Login (läuft nach 1 Std. ab)</summary>
+        <div class="form-stack mt-sm">
           <div class="field">
             <label for="set-client-id">Google Cloud OAuth 2.0 Client-ID</label>
             <input
@@ -555,19 +723,19 @@ function renderSettingsBody(state, ui) {
 
           <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
             <input id="set-drive-toggle" type="checkbox" data-action="toggle-drive-sync" ${g.driveSyncEnabled !== false ? 'checked' : ''} />
-            <span>Pixel, iPad &amp; PC über versteckten Google Drive App-Ordner synchronisieren</span>
+            <span>Google Drive App-Ordner Sync (Google Drive API erforderlich)</span>
           </label>
 
           <label class="flex-row" style="font-size:0.83rem; cursor:pointer;">
             <input id="set-readonly-toggle" type="checkbox" data-action="toggle-google-readonly" ${g.readOnlyMode ? 'checked' : ''} />
-            <span>Nur-Lese-Modus (falls nur <code>calendar.readonly</code> freigegeben wurde)</span>
+            <span>Nur-Lese-Modus (nur <code>calendar.readonly</code>)</span>
           </label>
 
           <div class="flex-row">
-            <button type="button" class="btn btn-google" data-action="connect-google">
-              ${ICONS.google} ${g.connected ? 'Neu verbinden / Scope aktualisieren' : 'Mit Google-Konto anmelden'}
+            <button type="button" class="btn btn-google btn-sm" data-action="connect-google">
+              ${ICONS.google} ${g.connected ? 'Neu verbinden' : 'Mit Google anmelden'}
             </button>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="connect-google-redirect" title="Hilfreich falls Popups auf dem Pixel 8 oder iPad blockiert werden">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="connect-google-redirect">
               Ohne Popup
             </button>
             ${
@@ -579,110 +747,20 @@ function renderSettingsBody(state, ui) {
           </div>
 
           ${
-            g.connected
-              ? `<div class="note-card" style="background:var(--accent-primary-softer); border-color:var(--accent-primary-soft);">
-                  <div class="flex-between" style="flex-wrap:wrap;">
-                    <div>
-                      <div class="fw-700 text-xs" style="display:flex; align-items:center; gap:6px;">
-                        ${ICONS.cloud} Geräte-Sync über Google Drive
-                      </div>
-                      <div class="text-xs text-secondary">
-                        ${
-                          driveStatus.state === 'syncing'
-                            ? 'Synchronisiere gerade…'
-                            : lastDriveStr
-                              ? `Zuletzt synchronisiert: ${lastDriveStr}`
-                              : 'Speichert Abgaben, Karten, Notizen & Lernzeit privat in deinem Drive App-Ordner.'
-                        }
-                      </div>
-                    </div>
-                    <div class="flex-row" style="gap:5px;">
-                      <button type="button" class="btn btn-primary btn-sm" data-action="drive-sync-auto">${ICONS.sync} Sync</button>
-                      <button type="button" class="btn btn-secondary btn-sm" data-action="drive-sync-upload" title="Lokalen Stand in Google Drive hochladen">${ICONS.upload}</button>
-                      <button type="button" class="btn btn-secondary btn-sm" data-action="drive-sync-download" title="Stand aus Google Drive laden">${ICONS.download}</button>
-                    </div>
-                  </div>
-                  ${
-                    driveStatus.error
-                      ? `<div class="text-xs mt-sm" style="color:var(--status-danger);">
-                          ${esc(driveStatus.error)}
-                          ${
-                            driveStatus.needsDriveApiEnable
-                              ? ` <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=922128740496" target="_blank" rel="noopener noreferrer" style="text-decoration:underline; font-weight:700;">Google Drive API jetzt aktivieren ↗</a>`
-                              : ''
-                          }
-                        </div>`
-                      : ''
-                  }
-                </div>`
+            driveStatus.error
+              ? `<div class="text-xs" style="color:var(--status-danger);">${esc(driveStatus.error)}</div>`
               : ''
           }
-
           ${
             ui.googleError
-              ? `<div class="note-card" style="background:var(--status-danger-soft); color:var(--status-danger);">
-                  <strong class="text-xs">Letzte Google-Meldung:</strong>
-                  <div class="text-xs">${esc(ui.googleError)}</div>
-                </div>`
+              ? `<div class="text-xs" style="color:var(--status-danger);">${esc(ui.googleError)}</div>`
               : ''
           }
-
-          <details class="guide-details" ${!g.connected ? 'open' : ''}>
-            <summary>Cloud-Setup-Checkliste (Kalender + Drive Sync)</summary>
-            <ol>
-              <li><strong>Google Drive API aktivieren (für Pixel/iPad/PC-Sync):</strong> Öffne in Projekt <code>922128740496</code> die <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com?project=922128740496" target="_blank" rel="noopener noreferrer">Google Drive API</a> und klicke auf <strong>Aktivieren</strong>. Danach in Studia einmal auf „Neu verbinden“ tippen.</li>
-              <li><strong>Autorisierter JavaScript-Ursprung:</strong> Exakt <code>${esc(origin)}</code>. Für „Ohne Popup“ zusätzlich <code>${esc(fullRedirect)}</code> bei Weiterleitungs-URIs.</li>
-              <li><strong>Google Calendar API:</strong> Aktiviert, damit Klausuren erkannt &amp; Abgabe-Serien mit Erinnerung angelegt werden.</li>
-            </ol>
-          </details>
-
-          <form class="form-stack" data-form="exam-keywords">
-            <div class="field">
-              <label for="set-keywords">Schlagwörter für automatische Klausur-Erkennung</label>
-              <div class="inline-add-row" style="margin-top:0;">
-                <input
-                  id="set-keywords"
-                  name="keywords"
-                  class="input"
-                  style="font-size:0.84rem;"
-                  value="${esc((g.examKeywords || []).join(', '))}"
-                />
-                <button type="submit" class="btn btn-secondary btn-sm">Speichern</button>
-              </div>
-            </div>
-          </form>
-
-          ${
-            g.connected && g.calendars?.length > 0
-              ? `
-                <div class="field">
-                  <label>Angezeigte Google Kalender</label>
-                  <div class="form-stack" style="gap:6px;">
-                    ${g.calendars
-                      .map(
-                        (cal) => `
-                      <label class="flex-row" style="font-size:0.86rem; cursor:pointer;">
-                        <input type="checkbox" data-action="toggle-google-cal" value="${esc(cal.id)}" ${g.selectedCalendarIds.includes(cal.id) ? 'checked' : ''} />
-                        <span>${esc(cal.summary)} ${cal.primary ? '(Hauptkalender)' : ''}</span>
-                      </label>`
-                      )
-                      .join('')}
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="set-write-cal">Ziel-Kalender für neue Studia-Termine &amp; Abgabe-Serien</label>
-                  <select id="set-write-cal" class="select" data-action="set-write-google-cal">
-                    ${g.calendars
-                      .filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
-                      .map((cal) => `<option value="${esc(cal.id)}" ${g.writeCalendarId === cal.id ? 'selected' : ''}>${esc(cal.summary)}</option>`)
-                      .join('')}
-                  </select>
-                </div>
-              `
-              : ''
-          }
+          <div class="text-xs text-muted">
+            Origin: <code>${esc(origin)}</code> · Redirect: <code>${esc(fullRedirect)}</code>
+          </div>
         </div>
-      </section>
+      </details>
 
       <hr style="border:none; border-top:1px solid var(--border-subtle); margin:4px 0;" />
 

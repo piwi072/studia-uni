@@ -5,6 +5,7 @@ import {
   formatDateDE,
   formatShortDateDE,
 } from '../data/defaults.js';
+import { isPersonalBridgeConfigured } from '../services/personalBridge.js';
 import {
   computeExamReadiness,
   formatSingleGradeDE,
@@ -15,6 +16,7 @@ import { esc } from '../utils/html.js';
 export function renderExamsView(state, ui) {
   const now = new Date();
   const filter = ui.examFilter || 'upcoming';
+  const googleConnected = Boolean(state.google.connected || isPersonalBridgeConfigured());
 
   const allExams = getUnifiedExams(state);
   const upcoming = allExams.filter((e) => !e.completed);
@@ -41,7 +43,7 @@ export function renderExamsView(state, ui) {
       </div>
       <div class="page-actions">
         ${
-          state.google.connected
+          googleConnected
             ? `<button class="btn btn-google btn-sm" data-action="sync-google-now">${ICONS.sync} Google Sync</button>`
             : `<button class="btn btn-google btn-sm" data-action="open-modal" data-modal="settings">${ICONS.google} Google verbinden</button>`
         }
@@ -57,7 +59,7 @@ export function renderExamsView(state, ui) {
         <div>
           <div class="fw-700" style="font-size:0.9rem;">
             ${
-              state.google.connected
+              googleConnected
                 ? 'Klausuren direkt aus deinem Google Kalender'
                 : 'Kein doppeltes Eintippen: Klausuren kommen aus Google Kalender'
             }
@@ -97,7 +99,7 @@ export function renderExamsView(state, ui) {
             }
           </div>`
         : `<div class="exam-grid">
-            ${list.map((ex) => renderExamCard(ex, now, state.google.connected)).join('')}
+            ${list.map((ex) => renderExamCard(ex, now, googleConnected)).join('')}
           </div>`
     }
   `;

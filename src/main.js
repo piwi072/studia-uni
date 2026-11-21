@@ -17,6 +17,14 @@ import {
   subscribeDriveSyncStatus,
   syncWithGoogleDrive,
 } from './services/googleDriveSync.js';
+import {
+  consumeBridgePairingHash,
+  getBridgeStatus,
+  isPersonalBridgeConfigured,
+  scheduleBridgeAutoPush,
+  subscribeBridgeStatus,
+  syncAllViaBridge,
+} from './services/personalBridge.js';
 import { getUnifiedExams, store } from './state/store.js';
 import { esc, vibrate } from './utils/html.js';
 import { renderCalendarView } from './views/calendarView.js';
@@ -24,6 +32,9 @@ import { renderExamsView } from './views/examsView.js';
 import { renderTimetableView } from './views/timetableView.js';
 import { renderTodayView } from './views/todayView.js';
 import { renderToolkitView } from './views/toolkitView.js';
+
+// Handle 1-tap Magic Pairing Link (#bridge=...) before anything else!
+const pairedBridge = consumeBridgePairingHash();
 
 const params = new URLSearchParams(window.location.search);
 const initialTab = ['today', 'timetable', 'calendar', 'exams', 'toolkit'].includes(
@@ -38,7 +49,6 @@ const sharedUrl = params.get('share_url') || '';
 const hasIncomingShare = Boolean(sharedTitle || sharedText || sharedUrl);
 
 if (hasIncomingShare) {
-  // Clean URL immediately so reloading does not reopen the Share dialog
   window.history.replaceState(null, '', window.location.pathname);
 }
 
@@ -63,6 +73,7 @@ const ui = {
   tutorMode: 'cards',
   tutorLoading: false,
   tutorError: '',
+  tutorCanFallbackHydrogen: false,
   tutorResultByModule: {},
   googleError: '',
   calc: {
@@ -143,6 +154,9 @@ function render(preserveFocusId = null) {
   const upcomingExamsCount = getUnifiedExams(state).filter((e) => !e.completed).length;
   const timerSnap = focusTimer.getSnapshot();
   const driveStatus = getDriveSyncStatus();
+  const bridgeActive = isPersonalBridgeConfigured();
+  const bridgeStat = getBridgeStatus();
+  const sidebarCollapsed = Boolean(state.sidebarCollapsed);
 
   let mainContent = '';
   if (ui.tab === 'today') mainContent = renderTodayView(state);
@@ -171,61 +185,84 @@ function render(preserveFocusId = null) {
       </div>`
       : '';
 
-  const syncLabel = !state.google.connected
-    ? 'Google verknüpfen'
-    : driveStatus.state === 'syncing'
-      ? 'Drive synchronisiert…'
-      : hasActiveGoogleToken()
-        ? state.google.lastDriveSync
-          ? 'Google & Drive aktiv'
-          : 'Google Kalender aktiv'
-        : 'Sitzung pausiert';
+  const isSyncedOk = bridgeActive || state.google.connected;
+  const syncLabel = bridgeActive
+    ? bridgeStat.state === 'syncing'
+      ? 'Synchronisiert…'
+      : bridgeStat.state === 'error'
+        ? 'Sync prüfen'
+        : 'Dauer-Sync aktiv'
+    : !state.google.connected
+      ? 'Dauer-Sync einrichten'
+      : driveStatus.state === 'syncing'
+        ? 'Drive synchronisiert…'
+        : hasActiveGoogleToken()
+          ? state.google.lastDriveSync
+            ? 'Google & Drive aktiv'
+            : 'Google Kalender aktiv'
+          : 'Sitzung pausiert';
 
   appRoot.innerHTML = `
     <div class="app-shell">
-      <aside class="sidebar-rail" aria-label="Hauptnavigation">
+      <aside class="sidebar-rail ${sidebarCollapsed ? 'collapsed' : ''}" aria-label="Hauptnavigation">
         <div class="brand-header">
-          <div class="brand-mark">
-            <img src="./icons/icon-192.png" alt="Studia App-Icon" />
-          </div>
-          <div>
-            <div class="brand-title">Studia</div>
-            <div class="brand-sub">${esc(state.profile.shortDegree || state.profile.degree)}</div>
-          </div>
+          <button
+            class="brand-trigger"
+            data-action="toggle-sidebar"
+            title="${sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}"
+            aria-label="${sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}"
+          >
+            <div class="brand-mark">
+              <img src="./icons/icon-192.png" alt="Studia App-Icon" />
+            </div>
+            <div class="brand-text">
+              <div class="brand-title">Studia</div>
+              <div class="brand-sub">${esc(state.profile.shortDegree || state.profile.degree)}</div>
+            </div>
+          </button>
+          <button
+            class="brand-toggle-btn"
+            data-action="toggle-sidebar"
+            title="${sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}"
+            aria-label="${sidebarCollapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}"
+            aria-expanded="${!sidebarCollapsed}"
+          >
+            ${sidebarCollapsed ? ICONS.panelOpen : ICONS.panelClose}
+          </button>
         </div>
 
         <nav class="rail-nav">
-          <button class="rail-nav-btn ${ui.tab === 'today' ? 'active' : ''}" data-nav="today">
-            ${ICONS.today} <span>Heute</span>
+          <button class="rail-nav-btn ${ui.tab === 'today' ? 'active' : ''}" data-nav="today" title="Heute">
+            ${ICONS.today} <span class="rail-label">Heute</span>
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'timetable' ? 'active' : ''}" data-nav="timetable">
-            ${ICONS.timetable} <span>Stundenplan</span>
+          <button class="rail-nav-btn ${ui.tab === 'timetable' ? 'active' : ''}" data-nav="timetable" title="Stundenplan">
+            ${ICONS.timetable} <span class="rail-label">Stundenplan</span>
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'calendar' ? 'active' : ''}" data-nav="calendar">
-            ${ICONS.calendar} <span>Kalender</span>
+          <button class="rail-nav-btn ${ui.tab === 'calendar' ? 'active' : ''}" data-nav="calendar" title="Kalender">
+            ${ICONS.calendar} <span class="rail-label">Kalender</span>
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'exams' ? 'active' : ''}" data-nav="exams">
-            ${ICONS.exams} <span>Klausuren</span>
+          <button class="rail-nav-btn ${ui.tab === 'exams' ? 'active' : ''}" data-nav="exams" title="Klausuren (${upcomingExamsCount})">
+            ${ICONS.exams} <span class="rail-label">Klausuren</span>
             ${upcomingExamsCount > 0 ? `<span class="nav-badge">${upcomingExamsCount}</span>` : ''}
           </button>
-          <button class="rail-nav-btn ${ui.tab === 'toolkit' ? 'active' : ''}" data-nav="toolkit">
-            ${ICONS.toolkit} <span>Studium</span>
+          <button class="rail-nav-btn ${ui.tab === 'toolkit' ? 'active' : ''}" data-nav="toolkit" title="Studium (${openTasksCount})">
+            ${ICONS.toolkit} <span class="rail-label">Studium</span>
             ${openTasksCount > 0 ? `<span class="nav-badge">${openTasksCount}</span>` : ''}
           </button>
         </nav>
 
         <div class="rail-footer">
-          <button class="mini-timer-pill ${timerSnap.running ? 'running' : ''}" data-nav="toolkit" data-sub="focus">
+          <button class="mini-timer-pill ${timerSnap.running ? 'running' : ''}" data-nav="toolkit" data-sub="focus" title="Bib-Fokus (${formatMMSS(timerSnap.remainingSeconds)})">
             <span class="flex-row" style="gap:7px;">
               ${ICONS.clock}
-              <span>${timerSnap.running ? esc(timerSnap.subject) : 'Bib-Fokus'}</span>
+              <span class="mini-timer-label">${timerSnap.running ? esc(timerSnap.subject) : 'Bib-Fokus'}</span>
             </span>
             <strong id="rail-timer-text" class="mono">${formatMMSS(timerSnap.remainingSeconds)}</strong>
           </button>
 
-          <button class="sync-status-btn" data-action="open-modal" data-modal="settings">
-            <span class="sync-dot ${state.google.connected ? 'connected' : 'demo'}"></span>
-            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          <button class="sync-status-btn" data-action="open-modal" data-modal="settings" title="${esc(syncLabel)}">
+            <span class="sync-dot ${isSyncedOk && bridgeStat.state !== 'error' ? 'connected' : 'demo'}"></span>
+            <span class="rail-label" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
               ${esc(syncLabel)}
             </span>
           </button>
@@ -234,8 +271,8 @@ function render(preserveFocusId = null) {
             <button class="icon-btn surface" data-action="toggle-theme" aria-label="Farbschema wechseln" title="Hell / Dunkel">
               ${state.theme === 'dark' ? ICONS.sun : ICONS.moon}
             </button>
-            <button class="icon-btn surface" style="flex:1; gap:7px; font-size:0.82rem; font-weight:600;" data-action="open-modal" data-modal="settings">
-              ${ICONS.settings} <span>Einstellungen</span>
+            <button class="icon-btn surface" style="flex:1; gap:7px; font-size:0.82rem; font-weight:600;" data-action="open-modal" data-modal="settings" title="Einstellungen & Sync">
+              ${ICONS.settings} <span class="rail-label">Einstellungen</span>
             </button>
           </div>
         </div>
@@ -260,7 +297,7 @@ function render(preserveFocusId = null) {
           <button class="icon-btn" data-action="toggle-theme" aria-label="Design wechseln">
             ${state.theme === 'dark' ? ICONS.sun : ICONS.moon}
           </button>
-          <button class="icon-btn" data-action="open-modal" data-modal="settings" aria-label="Einstellungen & Google-Konto">
+          <button class="icon-btn" data-action="open-modal" data-modal="settings" aria-label="Einstellungen & Sync">
             ${ICONS.settings}
           </button>
         </div>
@@ -379,7 +416,11 @@ if ('serviceWorker' in navigator) {
 store.subscribe((_state, meta) => {
   render();
   if (meta?.touchUpdatedAt && !meta?.fromRemote) {
-    scheduleDriveAutoUpload();
+    if (isPersonalBridgeConfigured()) {
+      scheduleBridgeAutoPush();
+    } else {
+      scheduleDriveAutoUpload();
+    }
   }
 });
 
@@ -387,12 +428,26 @@ subscribeDriveSyncStatus(() => {
   if (ui.modal?.type === 'settings') render();
 });
 
-/* ---------- Startup: OAuth Redirect + Silent Auto-Reconnect & Auto-Sync ---------- */
+subscribeBridgeStatus(() => {
+  render();
+});
+
+/* ---------- Startup: Personal Bridge Pairing + Auto-Sync + OAuth Fallback ---------- */
 let lastBackgroundSyncAt = 0;
 
-async function runSilentAutoSync(force = false) {
-  if (!store.state.google.connected || !store.state.google.rememberLogin) return;
+async function runBackgroundSync(force = false) {
   const now = Date.now();
+  if (isPersonalBridgeConfigured()) {
+    if (!force && now - lastBackgroundSyncAt < 30 * 1000) return;
+    lastBackgroundSyncAt = now;
+    const res = await syncAllViaBridge({ direction: 'auto', silent: true });
+    if (res.action === 'downloaded') {
+      showToast('Änderungen von anderem Gerät geladen.');
+    }
+    return;
+  }
+
+  if (!store.state.google.connected || !store.state.google.rememberLogin) return;
   if (!force && now - lastBackgroundSyncAt < 10 * 60 * 1000) return;
 
   const reconnect = await trySilentGoogleReconnect();
@@ -410,28 +465,60 @@ async function runSilentAutoSync(force = false) {
   }
 }
 
-handleGoogleRedirectCallback()
-  .then(async (count) => {
-    if (count !== null) {
-      if (store.state.google.driveSyncEnabled) {
-        await syncWithGoogleDrive({ direction: 'auto', silent: true });
-      }
-      showToast(`Google verbunden! ${count} Termine geladen.`);
+function activatePairedBridge() {
+  showToast('Gerät verknüpft! Lade deine Daten & Google Kalender…');
+  syncAllViaBridge({ direction: 'download', silent: false })
+    .then((res) => {
+      showToast(`Dauer-Sync aktiv! ${res.eventsCount || 0} Kalender-Termine geladen.`);
       render();
-    } else {
-      await runSilentAutoSync(true);
-    }
-  })
-  .catch((err) => {
-    ui.googleError = err.message;
-    ui.modal = { type: 'settings' };
-    render();
-  });
+    })
+    .catch((err) => {
+      showToast(err.message || 'Synchronisierung fehlgeschlagen.');
+      ui.modal = { type: 'settings' };
+      render();
+    });
+}
+
+if (pairedBridge) {
+  activatePairedBridge();
+} else {
+  handleGoogleRedirectCallback()
+    .then(async (count) => {
+      if (count !== null) {
+        if (store.state.google.driveSyncEnabled) {
+          await syncWithGoogleDrive({ direction: 'auto', silent: true });
+        }
+        showToast(`Google verbunden! ${count} Termine geladen.`);
+        render();
+      } else {
+        await runBackgroundSync(true);
+      }
+    })
+    .catch((err) => {
+      ui.googleError = err.message;
+      ui.modal = { type: 'settings' };
+      render();
+    });
+}
+
+window.addEventListener('hashchange', () => {
+  const newlyPaired = consumeBridgePairingHash();
+  if (newlyPaired) {
+    activatePairedBridge();
+  }
+});
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    runSilentAutoSync(false).catch(() => {});
+    runBackgroundSync(false).catch(() => {});
   }
 });
+
+// Keep PC / iPad / Pixel in sync every 60s while app is open in foreground (Personal Bridge)
+setInterval(() => {
+  if (document.visibilityState === 'visible' && isPersonalBridgeConfigured()) {
+    runBackgroundSync(false).catch(() => {});
+  }
+}, 60 * 1000);
 
 render();

@@ -10,6 +10,7 @@ import {
   isoDate,
 } from '../data/defaults.js';
 import { hasActiveGoogleToken } from '../services/googleCalendar.js';
+import { isPersonalBridgeConfigured } from '../services/personalBridge.js';
 import {
   computeExamReadiness,
   computeGpaStats,
@@ -163,7 +164,8 @@ export function renderTodayView(state) {
   const nextExam = upcomingExams[0];
   const nextExamDays = nextExam ? daysBetween(nextExam.date, now) : null;
   const gpaStats = computeGpaStats(state.grades || [], state.profile.targetEcts);
-  const needsGoogleRefresh = state.google.connected && !hasActiveGoogleToken();
+  const needsGoogleRefresh =
+    !isPersonalBridgeConfigured() && state.google.connected && !hasActiveGoogleToken();
 
   return `
     <header class="page-header">

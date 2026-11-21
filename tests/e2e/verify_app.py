@@ -104,6 +104,24 @@ def run_tests():
             page.wait_for_selector(".today-hero")
             assert_no_horizontal_overflow(page, "Desktop Today")
 
+            # Test collapsible left sidebar on Desktop (click toggle button -> 72px rail, persists across reload)
+            rail = page.locator(".sidebar-rail")
+            expanded_box = rail.bounding_box()
+            assert expanded_box["width"] >= 230, f"Expected expanded sidebar >= 230px, got {expanded_box['width']}"
+            page.click('.brand-toggle-btn[data-action="toggle-sidebar"]')
+            assert "collapsed" in (rail.get_attribute("class") or ""), "Sidebar should have collapsed class"
+            page.wait_for_timeout(240)
+            collapsed_box = rail.bounding_box()
+            assert collapsed_box["width"] <= 80, f"Expected collapsed sidebar <= 80px, got {collapsed_box['width']}"
+            assert_no_horizontal_overflow(page, "Desktop Sidebar Collapsed")
+            page.screenshot(path=os.path.join(SCRATCH_DIR, "v4_desktop_sidebar_collapsed.png"), full_page=True)
+
+            # Verify collapsed state persists after reload, then re-expand by clicking brand-trigger
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_selector(".sidebar-rail.collapsed")
+            page.click('.brand-trigger[data-action="toggle-sidebar"]')
+            assert "collapsed" not in (page.locator(".sidebar-rail").get_attribute("class") or ""), "Sidebar should re-expand via brand click"
+
             # Today view checks: semester countdown, due cards CTA, weekly goal
             body_text = page.inner_text("body")
             assert "Heute fällig:" in body_text, "Missing Today due-cards CTA"
@@ -177,16 +195,117 @@ def run_tests():
             page.click('[data-action="log-manual-study"][data-minutes="15"]')
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_focus_stats.png"), full_page=True)
 
-            # Settings modal: Drive sync, Remember login, Gemini 4 Neon, HSD semester config
+            # Settings modal: Dauer-Sync Bridge, Apps-Script copy, Gemini 4 Neon, HSD semester config
             page.click('.rail-footer [data-action="open-modal"][data-modal="settings"]')
             page.wait_for_selector(".modal-sheet")
             settings_text = page.inner_text(".modal-sheet")
-            assert "Google Drive App-Ordner" in settings_text, "Missing Drive sync option in settings"
-            assert "Anmeldung merken" in settings_text, "Missing remember login option in settings"
+            assert "Dauer-Sync (Ohne Neuanmeldung)" in settings_text, "Missing Dauer-Sync section in settings"
+            assert "Apps-Script-Code kopieren" in settings_text, "Missing Apps Script copy button"
             assert "Gemini 4 Neon" in settings_text, "Missing Gemini 4 Neon section in settings"
             assert "HSD-Semesterzeiten" in settings_text, "Missing Semester config section"
-            page.screenshot(path=os.path.join(SCRATCH_DIR, "v3_desktop_settings.png"), full_page=True)
+            page.screenshot(path=os.path.join(SCRATCH_DIR, "v4_desktop_settings_bridge.png"), full_page=True)
             page.click('[data-action="close-modal"]')
+
+            # Personal Dauer-Sync Bridge 1-Tap Magic Pairing Link (#bridge=...) on a fresh 2nd device (zero OAuth!)
+            import base64
+            bridge_url = "https://script.google.com/macros/s/test-bridge/exec"
+            bridge_secret = "std_TestBridgeToken12345678"
+            bridge_calls = []
+
+            sync_ctx = browser.new_context(viewport={"width": 1280, "height": 860})
+            sync_page = sync_ctx.new_page()
+            sync_errors = []
+            sync_page.on("pageerror", lambda err: sync_errors.append(f"pageerror: {err}"))
+            sync_page.on(
+                "console",
+                lambda msg: sync_errors.append(f"console.error: {msg.text}")
+                if msg.type == "error" and "accounts.google.com" not in msg.text
+                else None,
+            )
+            sync_page.route("https://accounts.google.com/**", lambda route: route.fulfill(status=200, content_type="application/javascript", body=""))
+
+            def handle_bridge(route):
+                raw_body = route.request.post_data or "{}"
+                req_json = json.loads(raw_body)
+                bridge_calls.append(req_json)
+                assert req_json.get("secret") == bridge_secret, "Bridge secret mismatch"
+                remote_state = req_json.get("state") or {}
+                if req_json.get("action") == "sync":
+                    synced_tasks = list(remote_state.get("tasks") or [])
+                    synced_tasks.insert(
+                        0,
+                        {
+                            "id": "tk_from_pixel8",
+                            "title": "Abgabe synchronisiert vom Pixel 8",
+                            "course": "GET I",
+                            "due": "2026-12-04",
+                            "dueTime": "12:00",
+                            "done": False,
+                            "recurrence": "once",
+                        },
+                    )
+                    remote_state["tasks"] = synced_tasks
+                    remote_state["updatedAt"] = "2099-01-01T12:00:00.000Z"
+                    resp_obj = {
+                        "ok": True,
+                        "email": "student@hs-duesseldorf.de",
+                        "stateAction": "downloaded",
+                        "remoteState": remote_state,
+                        "calendars": [
+                            {
+                                "id": "student@hs-duesseldorf.de",
+                                "summary": "Uni Hauptkalender",
+                                "primary": True,
+                                "backgroundColor": "#1a73e8",
+                                "accessRole": "owner",
+                            }
+                        ],
+                        "events": [
+                            {
+                                "id": "gcal_bridge_exam_1",
+                                "googleEventId": "bridge_exam_1",
+                                "calendarId": "student@hs-duesseldorf.de",
+                                "title": "Klausur Höhere Mathematik I (Bridge)",
+                                "date": "2027-02-05",
+                                "start": "09:00",
+                                "end": "11:00",
+                                "location": "Geb. 5 · Audimax",
+                                "notes": "Formelsammlung erlaubt",
+                                "htmlLink": "",
+                                "source": "google",
+                                "calendarName": "Google · Uni Hauptkalender",
+                                "color": "google",
+                            }
+                        ],
+                    }
+                    route.fulfill(status=200, content_type="text/plain;charset=utf-8", body=json.dumps(resp_obj))
+                else:
+                    route.fulfill(status=200, content_type="text/plain;charset=utf-8", body=json.dumps({"ok": True}))
+
+            sync_page.route("https://script.google.com/macros/s/test-bridge/exec", handle_bridge)
+            pair_payload = json.dumps({"u": bridge_url, "s": bridge_secret}).encode("utf-8")
+            pair_token = base64.urlsafe_b64encode(pair_payload).decode("ascii").rstrip("=")
+            sync_page.goto(f"{base_url}/#bridge={pair_token}", wait_until="domcontentloaded")
+            sync_page.wait_for_selector(".today-hero")
+            sync_page.wait_for_timeout(450)
+
+            assert "#bridge=" not in sync_page.url, "Pairing hash should be stripped immediately from URL"
+            assert len(bridge_calls) >= 1 and bridge_calls[0]["action"] == "sync", "Pairing link should auto-sync immediately"
+            assert "Dauer-Sync aktiv" in sync_page.inner_text(".sync-status-btn"), "Sidebar should show Dauer-Sync aktiv"
+            assert "Abgabe synchronisiert vom Pixel 8" in sync_page.inner_text("body"), "Remote synced task should appear on Today"
+
+            # Verify remote Google Calendar Klausur appeared in Exams tab without OAuth login!
+            sync_page.click('.rail-nav-btn[data-nav="exams"]')
+            sync_page.wait_for_selector(".exam-grid")
+            assert "Höhere Mathematik I (Bridge)" in sync_page.inner_text("body"), "Remote Google Calendar exam should appear via Bridge"
+
+            # Verify Settings modal now shows paired Active state & Geräte-Link button
+            sync_page.click('.rail-footer [data-action="open-modal"][data-modal="settings"]')
+            sync_page.wait_for_selector('[data-action="bridge-copy-pair-link"]')
+            assert "Geräte-Link für Handy & iPad kopieren" in sync_page.inner_text(".modal-sheet")
+            sync_page.screenshot(path=os.path.join(SCRATCH_DIR, "v4_desktop_settings_bridge_active.png"), full_page=True)
+            assert len(sync_errors) == 0, f"Bridge Sync device errors: {sync_errors}"
+            sync_ctx.close()
 
             # Web Share Target test via URL query params
             page.goto(
@@ -237,7 +356,7 @@ def run_tests():
             assert len(p8_errors) == 0, f"Pixel 8 errors: {p8_errors}"
             p8_ctx.close()
 
-            # 3. iPad Portrait (768x1024) verification
+            # 3. iPad Portrait (768x1024) verification + collapsible sidebar
             ipad_ctx = browser.new_context(viewport={"width": 768, "height": 1024})
             ipad = ipad_ctx.new_page()
             ipad_errors = []
@@ -247,14 +366,18 @@ def run_tests():
             ipad.goto(base_url, wait_until="domcontentloaded")
             ipad.wait_for_selector(".sidebar-rail")
             assert_no_horizontal_overflow(ipad, "iPad Today")
+            ipad.click('.brand-toggle-btn[data-action="toggle-sidebar"]')
+            ipad.wait_for_timeout(240)
+            assert ipad.locator(".sidebar-rail.collapsed").bounding_box()["width"] <= 80
             ipad.click('.rail-nav-btn[data-nav="timetable"]')
             ipad.wait_for_selector(".week-grid")
-            assert_no_horizontal_overflow(ipad, "iPad Timetable")
+            assert_no_horizontal_overflow(ipad, "iPad Timetable Collapsed Sidebar")
+            ipad.screenshot(path=os.path.join(SCRATCH_DIR, "v4_ipad_sidebar_collapsed.png"), full_page=True)
             assert len(ipad_errors) == 0, f"iPad errors: {ipad_errors}"
             ipad_ctx.close()
 
             browser.close()
-            print("ALL PLAYWRIGHT E2E CHECKS PASSED (Desktop, Pixel 8, iPad) — 0 errors, 0 overflow!")
+            print("ALL PLAYWRIGHT E2E CHECKS PASSED (Desktop, Pixel 8, iPad, Sidebar Collapse, Dauer-Sync Bridge) — 0 errors, 0 overflow!")
     finally:
         proc.terminate()
         try:
