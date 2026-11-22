@@ -475,6 +475,7 @@ export function createFormHandler({ ui, render, showToast }) {
     }
 
     if (modalType === 'event') {
+      const id = form.dataset.id;
       const payload = {
         title: String(fd.get('title') || '').trim(),
         date: String(fd.get('date') || isoDate()),
@@ -483,6 +484,18 @@ export function createFormHandler({ ui, render, showToast }) {
         location: String(fd.get('location') || '').trim(),
         notes: String(fd.get('notes') || '').trim(),
       };
+      if (id) {
+        store.update((s) => {
+          const idx = (s.calendarEvents || []).findIndex((e) => e.id === id);
+          if (idx >= 0) {
+            s.calendarEvents[idx] = { ...s.calendarEvents[idx], ...payload };
+          }
+        });
+        ui.modal = null;
+        showToast('Termin aktualisiert!');
+        render();
+        return;
+      }
       const pushGoogle = fd.get('pushGoogle') === 'on';
       const hasGoogleSync = isPersonalBridgeConfigured() || store.state.google.connected;
       if (pushGoogle && hasGoogleSync) {

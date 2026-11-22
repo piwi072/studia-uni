@@ -88,9 +88,19 @@ export function renderModal(state, modalState, ui = {}) {
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Abschließen</button>
     `;
   } else if (type === 'event') {
-    title = 'Neuer Kalender-Termin';
-    body = renderEventForm(date || isoDate(), Boolean(state.google.connected || isPersonalBridgeConfigured()));
+    const existing = id ? (state.calendarEvents || []).find((e) => e.id === id) : null;
+    title = existing ? 'Termin bearbeiten' : 'Neuer Kalender-Termin';
+    body = renderEventForm(
+      existing?.date || date || isoDate(),
+      Boolean(state.google.connected || isPersonalBridgeConfigured()),
+      existing
+    );
     footer = `
+      ${
+        existing
+          ? `<button type="button" class="btn btn-danger-soft" style="margin-right:auto;" data-action="delete-event" data-id="${esc(existing.id)}">${ICONS.trash} Löschen</button>`
+          : ''
+      }
       <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Speichern</button>
     `;
@@ -511,23 +521,27 @@ function renderExamForm(existing, googleConnected) {
   `;
 }
 
-function renderEventForm(defaultDate, googleConnected) {
+function renderEventForm(defaultDate, googleConnected, existing = null) {
   return `
-    <form id="studia-modal-form" class="form-stack" data-modal-submit="event">
-      <div class="field"><label for="f-title">Titel</label><input id="f-title" name="title" class="input" placeholder="z. B. GET I Praktikum" required /></div>
+    <form id="studia-modal-form" class="form-stack" data-modal-submit="event" data-id="${esc(existing?.id || '')}">
+      <div class="field"><label for="f-title">Titel</label><input id="f-title" name="title" class="input" value="${esc(existing?.title || '')}" placeholder="z. B. Lerngruppe, Praktikum oder Sprechstunde" required /></div>
       <div class="form-row">
-        <div class="field"><label for="f-date">Datum</label><input id="f-date" name="date" type="date" class="input mono" value="${esc(defaultDate)}" required /></div>
-        <div class="field"><label for="f-location">Ort (optional)</label><input id="f-location" name="location" class="input" placeholder="z. B. 05.2.055" /></div>
+        <div class="field"><label for="f-date">Datum</label><input id="f-date" name="date" type="date" class="input mono" value="${esc(existing?.date || defaultDate)}" required /></div>
+        <div class="field"><label for="f-location">Ort (optional)</label><input id="f-location" name="location" class="input" value="${esc(existing?.location || '')}" placeholder="z. B. Hörsaal oder Bib" /></div>
       </div>
       <div class="form-row">
-        <div class="field"><label for="f-start">Start</label><input id="f-start" name="start" type="time" class="input mono" value="14:00" required /></div>
-        <div class="field"><label for="f-end">Ende</label><input id="f-end" name="end" type="time" class="input mono" value="15:30" required /></div>
+        <div class="field"><label for="f-start">Start</label><input id="f-start" name="start" type="time" class="input mono" value="${esc(existing?.start || '14:00')}" required /></div>
+        <div class="field"><label for="f-end">Ende</label><input id="f-end" name="end" type="time" class="input mono" value="${esc(existing?.end || '15:30')}" required /></div>
       </div>
-      <div class="field"><label for="f-notes">Notiz (optional)</label><textarea id="f-notes" name="notes" class="textarea" rows="3"></textarea></div>
-      <label class="flex-row" style="cursor:pointer; font-size:0.86rem;">
-        <input type="checkbox" name="pushGoogle" ${googleConnected ? 'checked' : ''} />
-        <span>${googleConnected ? 'Direkt in meinen Google Kalender eintragen' : 'Zusätzlich als .ics für Google Kalender laden'}</span>
-      </label>
+      <div class="field"><label for="f-notes">Notiz (optional)</label><textarea id="f-notes" name="notes" class="textarea" rows="3">${esc(existing?.notes || '')}</textarea></div>
+      ${
+        !existing
+          ? `<label class="flex-row" style="cursor:pointer; font-size:0.86rem;">
+              <input type="checkbox" name="pushGoogle" ${googleConnected ? 'checked' : ''} />
+              <span>${googleConnected ? 'Direkt in meinen Google Kalender eintragen' : 'Zusätzlich als .ics für Google Kalender laden'}</span>
+            </label>`
+          : ''
+      }
     </form>
   `;
 }

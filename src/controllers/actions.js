@@ -1,5 +1,6 @@
 import {
   DEFAULT_SEMESTER_CONFIG,
+  addDaysToISO,
   formatShortDateDE,
   isoDate,
   parseISODate,
@@ -405,6 +406,30 @@ export function createActionHandlers({ ui, render, showToast }) {
     }
 
     /* Calendar, Google Sync & Drive Sync actions */
+    if (action === 'set-cal-sub') {
+      vibrate(6);
+      ui.calSub = actionEl.dataset.value;
+      render();
+      return;
+    }
+    if (action === 'toggle-cal-lectures') {
+      vibrate(6);
+      ui.calShowLectures = !(ui.calShowLectures !== false);
+      render();
+      return;
+    }
+    if (action === 'cal-step-day' || action === 'cal-step-week') {
+      vibrate(6);
+      const delta = Number(actionEl.dataset.delta || 0);
+      const base = ui.selectedCalendarDate || isoDate();
+      const nextIso = addDaysToISO(base, delta);
+      ui.selectedCalendarDate = nextIso;
+      const d = parseISODate(nextIso);
+      ui.calYear = d.getFullYear();
+      ui.calMonth = d.getMonth();
+      render();
+      return;
+    }
     if (action === 'set-cal-filter') {
       ui.calFilter = actionEl.dataset.value;
       render();
@@ -416,6 +441,7 @@ export function createActionHandlers({ ui, render, showToast }) {
       const d = parseISODate(ui.selectedCalendarDate);
       ui.calYear = d.getFullYear();
       ui.calMonth = d.getMonth();
+      if (ui.calSub === 'week') ui.calSub = 'month';
       render();
       return;
     }
@@ -445,6 +471,10 @@ export function createActionHandlers({ ui, render, showToast }) {
       store.update((s) => {
         s.calendarEvents = s.calendarEvents.filter((ev) => ev.id !== actionEl.dataset.id);
       });
+      if (ui.modal?.type === 'event') {
+        ui.modal = null;
+        render();
+      }
       showToast('Termin gelöscht');
       return;
     }
@@ -1113,6 +1143,11 @@ export function createActionHandlers({ ui, render, showToast }) {
   }
 
   function handleInput(e) {
+    if (e.target.dataset?.calSearch !== undefined) {
+      ui.calSearch = e.target.value;
+      render(e.target.id);
+      return;
+    }
     const key = e.target.dataset?.calc;
     if (!key) return;
     ui.calc[key] = e.target.value;
