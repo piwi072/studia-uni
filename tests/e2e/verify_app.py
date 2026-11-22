@@ -174,23 +174,27 @@ def run_tests():
             assert "Weihnachtsferien" in cal_agenda, "Holiday notice missing on Dec 25"
             assert "Grundlagen der Elektrotechnik I" not in cal_agenda, "Lecture should be hidden on Christmas holiday"
 
-            # Klausuren & Noten view: Mathe I (7 -> 8) & BWL (21 VP = 10 KP -> +4 -> 25 VP = 10 KP -> +8 -> 33 VP = 15 KP)
+            # Klausuren & Noten view: Mathe I (7 -> 8) & BWL quizzes (+1/+2/+3/+4: 21 -> +3=24 (10 KP) -> +4=28 (10 KP) -> +2=30 (15 KP))
             page.click('.rail-nav-btn[data-nav="exams"]')
             page.wait_for_selector(".bonus-grid")
             assert page.inner_text('[data-bonus-display="mathe"]').strip() == "7"
             assert page.inner_text('[data-bonus-display="bwl-exam"]').strip() == "10"
             assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "21"
+            assert page.locator('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="8"]').count() == 0
             page.click('[data-action="adjust-bonus"][data-subject="mathe"][data-delta="1"]')
             assert page.inner_text('[data-bonus-display="mathe"]').strip() == "8"
-            page.click('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="4"]')
-            assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "25"
+            page.click('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="3"]')
+            assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "24"
             assert page.inner_text('[data-bonus-display="bwl-exam"]').strip() == "10"
-            page.click('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="8"]')
-            assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "33"
+            page.click('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="4"]')
+            assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "28"
+            assert page.inner_text('[data-bonus-display="bwl-exam"]').strip() == "10"
+            page.click('[data-action="adjust-bonus"][data-subject="bwl"][data-delta="2"]')
+            assert page.inner_text('[data-bonus-display="bwl-vp"]').strip() == "30"
             assert page.inner_text('[data-bonus-display="bwl-exam"]').strip() == "15"
             exams_body = page.inner_text("body")
             assert "+8 Bonuspunkte" in exams_body, "Mathe exam card should show updated bonus badge"
-            assert "+15 Bonuspunkte (33 VP)" in exams_body, "BWL exam card should show updated bonus badge"
+            assert "+15 Bonuspunkte (30 VP)" in exams_body, "BWL exam card should show updated bonus badge"
             assert_no_horizontal_overflow(page, "Desktop Klausuren & Bonus")
             page.screenshot(path=os.path.join(SCRATCH_DIR, "v5_desktop_exams_bonus.png"), full_page=True)
 

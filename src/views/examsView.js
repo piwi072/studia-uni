@@ -209,31 +209,41 @@ export function renderBonusPointsCard(bonusPoints) {
               data-action="adjust-bonus"
               data-subject="bwl"
               data-delta="-1"
-              title="1 Vorlesungspunkt abziehen"
-              aria-label="BWL 1 Vorlesungspunkt abziehen"
+              title="1 Quiz-Punkt abziehen"
+              aria-label="BWL 1 Punkt abziehen"
             >−1</button>
             <button
               class="btn btn-soft btn-sm"
               style="flex:1;"
               data-action="adjust-bonus"
               data-subject="bwl"
-              data-delta="4"
-            >+4 VL</button>
+              data-delta="1"
+              title="Quiz: +1 Punkt"
+            >+1</button>
+            <button
+              class="btn btn-soft btn-sm"
+              style="flex:1;"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="2"
+              title="Quiz: +2 Punkte"
+            >+2</button>
+            <button
+              class="btn btn-soft btn-sm"
+              style="flex:1;"
+              data-action="adjust-bonus"
+              data-subject="bwl"
+              data-delta="3"
+              title="Quiz: +3 Punkte"
+            >+3</button>
             <button
               class="btn btn-primary btn-sm"
               style="flex:1;"
               data-action="adjust-bonus"
               data-subject="bwl"
-              data-delta="8"
-            >+8 VL</button>
-            <button
-              class="btn btn-secondary btn-sm"
-              data-action="adjust-bonus"
-              data-subject="bwl"
-              data-delta="1"
-              title="1 Vorlesungspunkt hinzufügen"
-              aria-label="BWL 1 Vorlesungspunkt hinzufügen"
-            >+1</button>
+              data-delta="4"
+              title="Quiz: volle 4 Punkte"
+            >+4</button>
           </div>
         </div>
       </div>

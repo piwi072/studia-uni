@@ -1,6 +1,6 @@
 export const DEFAULT_BONUS_POINTS = {
   mathe: 7, // 1:1 (1 gesammelter Punkt = 1 Klausurpunkt)
-  bwl: 21, // Vorlesungspunkte (+4 oder +8 pro VL), 10er-Brackets: 10 VP = 5 Klausurpunkte
+  bwl: 21, // Vorlesungspunkte (+1 bis +4 pro Quiz, teils 2 Quizzes/VL), 10er-Brackets: 10 VP = 5 Klausurpunkte
 };
 
 export function normalizeBonusPoints(raw) {

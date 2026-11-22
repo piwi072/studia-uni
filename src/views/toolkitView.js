@@ -1035,9 +1035,11 @@ function renderModuleInlineBonus(modId, bonusPoints) {
           </span>
         </div>
         <div class="flex-row" style="gap:5px;">
-          <button class="btn btn-secondary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="-1" aria-label="BWL Vorlesungspunkt minus 1">−1</button>
-          <button class="btn btn-soft btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="4">+4 VL</button>
-          <button class="btn btn-primary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="8">+8 VL</button>
+          <button class="btn btn-secondary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="-1" aria-label="BWL Punkt minus 1">−1</button>
+          <button class="btn btn-soft btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="1">+1</button>
+          <button class="btn btn-soft btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="2">+2</button>
+          <button class="btn btn-soft btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="3">+3</button>
+          <button class="btn btn-primary btn-sm" data-action="adjust-bonus" data-subject="bwl" data-delta="4">+4</button>
         </div>
       </div>
     `;
