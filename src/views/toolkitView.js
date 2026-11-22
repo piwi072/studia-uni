@@ -180,14 +180,24 @@ export function renderModulesView(state, ui) {
 
       ${inlineBonusHtml}
 
-      ${
-        modTasks.length > 0
-          ? `<div class="mt-md" style="padding-top:12px; border-top:1px solid var(--border-subtle);">
-              <div class="text-xs fw-600 text-muted" style="margin-bottom:6px;">Aktive Abgabe in diesem Modul</div>
-              <div class="task-list">${modTasks.map((t) => renderTaskRow(t)).join('')}</div>
-            </div>`
-          : ''
-      }
+      <div class="mt-md" style="padding-top:12px; border-top:1px solid var(--border-subtle);">
+        <div class="flex-between" style="margin-bottom:6px;">
+          <div class="text-xs fw-600 text-muted">To-Dos &amp; Übungen in ${esc(mod.short)}</div>
+          <button
+            class="btn btn-secondary btn-sm"
+            data-action="open-modal"
+            data-modal="task"
+            data-course="${esc(mod.courseKey)}"
+          >
+            ${ICONS.plus} To-Do / Übung
+          </button>
+        </div>
+        ${
+          modTasks.length > 0
+            ? `<div class="task-list">${modTasks.map((t) => renderTaskRow(t)).join('')}</div>`
+            : `<div class="text-xs text-muted">Noch keine To-Dos oder wiederkehrenden Übungen für ${esc(mod.short)} eingetragen.</div>`
+        }
+      </div>
     </section>
 
     <!-- Main 2-Column Workspace: Spaced-Repetition Flashcards + Notebook Infos -->
@@ -1152,7 +1162,10 @@ export function renderTasksSection(state) {
                           <button class="btn btn-primary btn-sm" data-action="complete-recurring-task" data-id="${esc(tk.id)}">
                             ${ICONS.check} Abgehakt
                           </button>
-                          <button class="icon-btn" data-action="delete-task" data-id="${esc(tk.id)}" aria-label="Abgabe löschen">
+                          <button class="icon-btn" data-action="open-modal" data-modal="task" data-id="${esc(tk.id)}" aria-label="Abgabe bearbeiten" title="Bearbeiten">
+                            ${ICONS.edit}
+                          </button>
+                          <button class="icon-btn" data-action="delete-task" data-id="${esc(tk.id)}" aria-label="Abgabe löschen" title="Löschen">
                             ${ICONS.trash}
                           </button>
                         </div>

@@ -514,24 +514,49 @@ export function createFormHandler({ ui, render, showToast }) {
     }
 
     if (modalType === 'task') {
+      const id = form.dataset.id;
       const recurrence = String(fd.get('recurrence') || 'once');
+      const title = String(fd.get('title') || '').trim();
+      const course = String(fd.get('course') || 'Orga').trim();
+      const due = String(fd.get('due') || '');
+      const dueTime = String(fd.get('dueTime') || '18:00');
+      const recurrenceLabel =
+        recurrence === 'weekly'
+          ? 'Jede Woche'
+          : recurrence === 'biweekly'
+            ? 'Alle 2 Wochen'
+            : 'Einmalig';
+      if (!title) return;
       store.update((s) => {
-        s.tasks.push({
-          id: uid('tk'),
-          title: String(fd.get('title') || '').trim(),
-          course: String(fd.get('course') || 'Orga').trim(),
-          due: String(fd.get('due') || ''),
-          dueTime: String(fd.get('dueTime') || '23:59'),
-          recurrence,
-          recurrenceLabel:
-            recurrence === 'weekly' ? 'Jede Woche' : recurrence === 'biweekly' ? 'Alle 2 Wochen' : 'Einmalig',
-          streak: 0,
-          lastCompleted: null,
-          done: false,
-        });
+        const idx = id ? s.tasks.findIndex((t) => t.id === id) : -1;
+        if (idx >= 0) {
+          s.tasks[idx] = {
+            ...s.tasks[idx],
+            title,
+            course,
+            due,
+            dueTime,
+            recurrence,
+            recurrenceLabel,
+            done: recurrence === 'once' ? s.tasks[idx].done : false,
+          };
+        } else {
+          s.tasks.push({
+            id: uid('tk'),
+            title,
+            course,
+            due,
+            dueTime,
+            recurrence,
+            recurrenceLabel,
+            streak: 0,
+            lastCompleted: null,
+            done: false,
+          });
+        }
       });
       ui.modal = null;
-      showToast('Abgabe / Aufgabe hinzugefügt');
+      showToast(id ? 'Aufgabe aktualisiert!' : 'Aufgabe hinzugefügt!');
       render();
       return;
     }

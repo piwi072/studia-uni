@@ -95,45 +95,63 @@ export function renderModal(state, modalState, ui = {}) {
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Speichern</button>
     `;
   } else if (type === 'task') {
-    title = 'Neue Abgabe / Aufgabe';
+    const existing = id ? (state.tasks || []).find((t) => t.id === id) : null;
+    const selectedCourse = existing?.course || modalState.course || state.modules?.[0]?.courseKey || 'Orga';
+    const selectedRecurrence = existing?.recurrence || 'once';
+    const moduleKeys = new Set((state.modules || []).map((m) => m.courseKey));
+    const hasCustomCourse = selectedCourse && selectedCourse !== 'Orga' && !moduleKeys.has(selectedCourse);
+    title = existing ? 'To-Do / Übung bearbeiten' : 'Neues To-Do / Übung';
     body = `
-      <form id="studia-modal-form" class="form-stack" data-modal-submit="task">
+      <form id="studia-modal-form" class="form-stack" data-modal-submit="task" data-id="${esc(existing?.id || '')}">
         <div class="field">
           <label for="f-title">Titel</label>
-          <input id="f-title" name="title" class="input" placeholder="z. B. Arbeitsblatt Mathe I" required />
+          <input id="f-title" name="title" class="input" value="${esc(existing?.title || '')}" placeholder="z. B. Arbeitsblatt Mathe I oder Übung vorbereiten" required />
         </div>
         <div class="form-row">
           <div class="field">
-            <label for="f-course">Fach</label>
+            <label for="f-course">Modul / Fach</label>
             <select id="f-course" name="course" class="select">
               ${(state.modules || [])
-                .map((m) => `<option value="${esc(m.courseKey)}">${esc(m.short)}</option>`)
+                .map(
+                  (m) =>
+                    `<option value="${esc(m.courseKey)}" ${m.courseKey === selectedCourse ? 'selected' : ''}>${esc(m.short)}</option>`
+                )
                 .join('')}
-              <option value="Orga">Orga / Allgemein</option>
+              ${
+                hasCustomCourse
+                  ? `<option value="${esc(selectedCourse)}" selected>${esc(selectedCourse)}</option>`
+                  : ''
+              }
+              <option value="Orga" ${selectedCourse === 'Orga' ? 'selected' : ''}>Orga / Allgemein</option>
             </select>
           </div>
           <div class="field">
             <label for="f-recur">Wiederholung</label>
             <select id="f-recur" name="recurrence" class="select">
-              <option value="once">Einmalig</option>
-              <option value="weekly">Jede Woche</option>
-              <option value="biweekly">Alle 2 Wochen</option>
+              <option value="once" ${selectedRecurrence === 'once' ? 'selected' : ''}>Einmalig</option>
+              <option value="weekly" ${selectedRecurrence === 'weekly' ? 'selected' : ''}>Jede Woche</option>
+              <option value="biweekly" ${selectedRecurrence === 'biweekly' ? 'selected' : ''}>Alle 2 Wochen</option>
             </select>
           </div>
         </div>
         <div class="form-row">
           <div class="field">
             <label for="f-due">Nächstes Datum</label>
-            <input id="f-due" name="due" type="date" class="input mono" value="${addDays(3)}" required />
+            <input id="f-due" name="due" type="date" class="input mono" value="${esc(existing?.due || addDays(3))}" required />
           </div>
           <div class="field">
             <label for="f-time">Uhrzeit</label>
-            <input id="f-time" name="dueTime" type="time" class="input mono" value="23:59" />
+            <input id="f-time" name="dueTime" type="time" class="input mono" value="${esc(existing?.dueTime || '18:00')}" />
           </div>
         </div>
       </form>
     `;
     footer = `
+      ${
+        existing
+          ? `<button type="button" class="btn btn-danger-soft" style="margin-right:auto;" data-action="delete-task" data-id="${esc(existing.id)}">${ICONS.trash} Löschen</button>`
+          : ''
+      }
       <button type="button" class="btn btn-ghost" data-action="close-modal">Abbrechen</button>
       <button type="submit" form="studia-modal-form" class="btn btn-primary">Speichern</button>
     `;

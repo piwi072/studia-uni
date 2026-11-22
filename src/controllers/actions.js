@@ -151,6 +151,7 @@ export function createActionHandlers({ ui, render, showToast }) {
         type: actionEl.dataset.modal,
         id: actionEl.dataset.id || null,
         date: actionEl.dataset.date || null,
+        course: actionEl.dataset.course || null,
       };
       render();
       return;
@@ -917,6 +918,11 @@ export function createActionHandlers({ ui, render, showToast }) {
       store.update((s) => {
         s.tasks = s.tasks.filter((x) => x.id !== actionEl.dataset.id);
       });
+      if (ui.modal?.type === 'task') {
+        ui.modal = null;
+        render();
+      }
+      showToast('Aufgabe gelöscht.');
       return;
     }
 

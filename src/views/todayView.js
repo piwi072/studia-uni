@@ -289,7 +289,10 @@ export function renderTodayView(state, ui = {}) {
         <section class="card">
           <div class="section-head">
             <h2 class="section-title">Anstehende Abgaben & Pflichtaufgaben</h2>
-            <button class="section-link" data-action="set-today-sub" data-value="tasks">Alle verwalten →</button>
+            <div class="flex-row" style="gap:8px;">
+              <button class="btn btn-secondary btn-sm" data-action="open-modal" data-modal="task">${ICONS.plus} To-Do</button>
+              <button class="section-link" data-action="set-today-sub" data-value="tasks">Alle →</button>
+            </div>
           </div>
           ${
             openTasks.length === 0
@@ -462,9 +465,14 @@ export function renderTaskRow(tk, now = new Date()) {
           ${tk.googleEventId ? `<span class="badge badge-google">Im Kalender</span>` : ''}
         </div>
       </div>
-      <button class="icon-btn" data-action="delete-task" data-id="${esc(tk.id)}" aria-label="Aufgabe löschen">
-        ${ICONS.trash}
-      </button>
+      <div class="flex-row" style="gap:2px;">
+        <button class="icon-btn" data-action="open-modal" data-modal="task" data-id="${esc(tk.id)}" aria-label="Aufgabe bearbeiten" title="Bearbeiten">
+          ${ICONS.edit}
+        </button>
+        <button class="icon-btn" data-action="delete-task" data-id="${esc(tk.id)}" aria-label="Aufgabe löschen" title="Löschen">
+          ${ICONS.trash}
+        </button>
+      </div>
     </div>
   `;
 }
