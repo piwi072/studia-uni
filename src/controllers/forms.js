@@ -10,6 +10,7 @@ import {
 import { pushEventToGoogle } from '../services/googleCalendar.js';
 import {
   isPersonalBridgeConfigured,
+  parseBridgeInput,
   pushEventViaBridge,
   savePersonalBridgeConfig,
   syncAllViaBridge,
@@ -27,18 +28,19 @@ export function createFormHandler({ ui, render, showToast }) {
 
     /* ---------- Inline Forms ---------- */
     if (form.dataset.form === 'save-bridge-config') {
-      const url = String(fd.get('bridgeUrl') || '').trim();
-      const secret = String(fd.get('bridgeSecret') || '').trim();
-      if (!url || !/^https:\/\//i.test(url)) {
-        showToast('Bitte eine gültige https://script.google.com/…/exec URL eingeben.');
+      let parsed;
+      try {
+        parsed = parseBridgeInput(fd.get('bridgeUrl'), fd.get('bridgeSecret'));
+      } catch (err) {
+        showToast(err.message || 'Ungültige Sync-Daten.');
         return;
       }
-      if (secret.length < 8) {
-        showToast('Das Sync-Token sollte mindestens 8 Zeichen lang sein.');
-        return;
-      }
-      savePersonalBridgeConfig({ url, secret });
-      showToast('Teste Verbindung & synchronisiere…');
+      savePersonalBridgeConfig({ url: parsed.url, secret: parsed.secret });
+      showToast(
+        parsed.fromPairingLink
+          ? 'Geräte-Link erkannt! Teste Verbindung & synchronisiere…'
+          : 'Teste Verbindung & synchronisiere…'
+      );
       try {
         const res = await syncAllViaBridge({ direction: 'auto', silent: false });
         showToast(

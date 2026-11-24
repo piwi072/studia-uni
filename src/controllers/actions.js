@@ -31,6 +31,7 @@ import {
   ensureBridgeSecret,
   generateAppsScriptCode,
   isPersonalBridgeConfigured,
+  parseBridgeInput,
   pushAllRecurringTasksViaBridge,
   pushEventViaBridge,
   pushRecurringTaskViaBridge,
@@ -620,9 +621,33 @@ export function createActionHandlers({ ui, render, showToast }) {
           document.execCommand('copy');
           ta.remove();
         }
-        showToast('Geräte-Link kopiert! Auf Pixel 8 & iPad 1× öffnen → sofort synchron.');
+        showToast(
+          'Geräte-Link kopiert! Auf iPad Home-Bildschirm einfach in Einstellungen ins erste Feld einfügen.'
+        );
       } catch {
         showToast('Konnte Link nicht kopieren — bitte erneut tippen.');
+      }
+      return;
+    }
+    if (action === 'bridge-copy-secret') {
+      const secretVal = (document.getElementById('bridge-secret')?.value || '').trim();
+      if (!secretVal) return;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(secretVal);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = secretVal;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        showToast('Sync-Token kopiert!');
+      } catch {
+        showToast('Konnte Token nicht kopieren.');
       }
       return;
     }
@@ -1143,6 +1168,23 @@ export function createActionHandlers({ ui, render, showToast }) {
   }
 
   function handleInput(e) {
+    if (e.target.dataset?.bridgeSmart !== undefined) {
+      const raw = String(e.target.value || '').trim();
+      if (raw.includes('bridge=')) {
+        try {
+          const decoded = parseBridgeInput(raw);
+          if (decoded.fromPairingLink) {
+            e.target.value = decoded.url;
+            const secretEl = document.getElementById('bridge-secret');
+            if (secretEl) secretEl.value = decoded.secret;
+            showToast('Geräte-Link erkannt! URL & Token ausgefüllt — jetzt auf „Speichern & Sync“ tippen.');
+          }
+        } catch {
+          // Wait until paste finishes or let submit validate
+        }
+      }
+      return;
+    }
     if (e.target.dataset?.calSearch !== undefined) {
       ui.calSearch = e.target.value;
       render(e.target.id);

@@ -591,28 +591,36 @@ function renderSettingsBody(state, ui) {
 
         <form class="form-stack" data-form="save-bridge-config">
           <div class="field">
-            <label for="bridge-url">Deine persönliche Google Apps Script Web-App-URL</label>
+            <label for="bridge-url">Geräte-Link (iPad / Handy) ODER Google Web-App-URL</label>
             <input
               id="bridge-url"
               name="bridgeUrl"
-              type="url"
+              type="text"
               class="input mono"
               style="font-size:0.78rem;"
               value="${esc(bridgeCfg.url)}"
-              placeholder="https://script.google.com/macros/s/…/exec"
+              placeholder="Geräte-Link (#bridge=…) oder https://script.google.com/macros/s/…/exec"
+              data-bridge-smart="1"
               required
             />
+            <div class="text-xs text-muted" style="margin-top:4px;">
+              <strong>iPad / iPhone Home-Bildschirm:</strong> Einfach deinen kopierten <em>Geräte-Link</em> hier oben einfügen — URL &amp; Token werden automatisch erkannt!
+            </div>
           </div>
           <div class="field">
-            <label for="bridge-secret">Dein geheimes Sync-Token (schützt deinen Zugang)</label>
-            <input
-              id="bridge-secret"
-              name="bridgeSecret"
-              class="input mono"
-              style="font-size:0.78rem;"
-              value="${esc(bridgeSecret)}"
-              required
-            />
+            <label for="bridge-secret">Geheimes Sync-Token (schützt deinen Zugang)</label>
+            <div class="inline-add-row" style="margin-top:0;">
+              <input
+                id="bridge-secret"
+                name="bridgeSecret"
+                class="input mono"
+                style="font-size:0.78rem;"
+                value="${esc(bridgeSecret)}"
+              />
+              <button type="button" class="btn btn-secondary btn-sm" data-action="bridge-copy-secret" title="Sync-Token kopieren">
+                ${ICONS.copy}
+              </button>
+            </div>
           </div>
 
           <div class="flex-row">
@@ -652,7 +660,7 @@ function renderSettingsBody(state, ui) {
                   </div>
                 </div>
                 <div class="text-xs text-muted mt-sm">
-                  <strong>Neues Gerät (Pixel 8 / iPad):</strong> Oben auf <em>„Geräte-Link kopieren“</em> tippen, dir selbst schicken (z. B. WhatsApp / Mail) und 1× öffnen — fertig!
+                  <strong>Neues Gerät / iPad Home-Bildschirm:</strong> Oben auf <em>„Geräte-Link kopieren“</em> tippen → auf dem anderen Gerät die App öffnen → Einstellungen → Geräte-Link ins erste Feld einfügen → <strong>Speichern &amp; Sync</strong>!
                 </div>
               </div>`
             : ''
@@ -663,6 +671,13 @@ function renderSettingsBody(state, ui) {
             ? `<div class="note-card mt-sm" style="background:var(--status-danger-soft); color:var(--status-danger);">
                 <div class="text-xs fw-700">Dauer-Sync Hinweis</div>
                 <div class="text-xs">${esc(bridgeStat.error)}</div>
+                ${
+                  bridgeStat.error.includes('Sync-Token')
+                    ? `<div class="text-xs" style="margin-top:6px; opacity:0.95;">
+                        <strong>Lösung fürs iPad / neues Gerät:</strong> Dieses Gerät hat noch ein eigenes Zufalls-Token. Kopiere in Chrome / am PC den <em>„Geräte-Link“</em> und füge ihn einfach oben ins erste Feld ein → <strong>Speichern &amp; Sync</strong>!
+                      </div>`
+                    : ''
+                }
               </div>`
             : ''
         }

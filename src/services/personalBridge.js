@@ -122,6 +122,33 @@ export function decodeBridgePairingToken(token) {
   return { url: String(parsed.u).trim(), secret: String(parsed.s).trim() };
 }
 
+/**
+ * Parses either a full Magic Pairing Link (`...#bridge=<token>` / `bridge=<token>`)
+ * OR a separate Google Apps Script Web-App URL + Sync-Token.
+ */
+export function parseBridgeInput(rawUrlOrLink, rawSecret = '') {
+  const input = String(rawUrlOrLink || '').trim();
+  const bridgeMatch = input.match(/(?:#|^|\b)bridge=([A-Za-z0-9_-]+)/);
+  if (bridgeMatch) {
+    const decoded = decodeBridgePairingToken(bridgeMatch[1]);
+    if (!/^https:\/\//i.test(decoded.url) || decoded.secret.length < 8) {
+      throw new Error('Ungültiger Geräte-Link.');
+    }
+    return { url: decoded.url, secret: decoded.secret, fromPairingLink: true };
+  }
+
+  const secret = String(rawSecret || '').trim();
+  if (!input || !/^https:\/\//i.test(input)) {
+    throw new Error(
+      'Bitte deinen Geräte-Link (#bridge=…) oder eine gültige https://script.google.com/…/exec URL einfügen.'
+    );
+  }
+  if (secret.length < 8) {
+    throw new Error('Das Sync-Token sollte mindestens 8 Zeichen lang sein.');
+  }
+  return { url: input, secret, fromPairingLink: false };
+}
+
 export function buildBridgePairingUrl(baseUrlOverride = null) {
   const cfg = getPersonalBridgeConfig();
   if (!cfg.url || !cfg.secret) return '';
